@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=5.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <title>{{ $workspace ? $workspace->name . ' - ' : '' }}PocketDev Chat</title>
+    <title>{{ isset($workspace) && $workspace ? $workspace->name . ' - ' : '' }}PocketDev Chat</title>
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 
@@ -2336,6 +2336,7 @@
                                 if (switchResponse.ok) {
                                     this.currentWorkspace = targetWorkspace;
                                     this.currentWorkspaceId = targetWorkspace.id;
+                                    this.updateBrowserTitle();
 
                                     // Reload conversations and agents for the new workspace
                                     await this.fetchConversations();

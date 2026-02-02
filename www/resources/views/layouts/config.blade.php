@@ -7,9 +7,10 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     @php
         $activeWorkspaceId = session('active_workspace_id');
-        $activeWorkspace = $activeWorkspaceId
-            ? \App\Models\Workspace::find($activeWorkspaceId)
-            : \App\Models\Workspace::first();
+        $user = auth()->user();
+        $activeWorkspace = $user
+            ? ($activeWorkspaceId ? $user->workspaces()->find($activeWorkspaceId) : $user->workspaces()->first())
+            : null;
         $workspacePrefix = $activeWorkspace ? $activeWorkspace->name . ' - ' : '';
     @endphp
     <title>{{ $workspacePrefix }}@yield('title', 'Settings') - PocketDev</title>

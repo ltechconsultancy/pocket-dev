@@ -198,7 +198,7 @@
                                 } else if (updatedEntry.isMarkdown) {
                                     let html = marked.parse(updatedEntry.content);
                                     html = window.linkifyFilePaths(html);
-                                    updatedEntry.renderedContent = DOMPurify.sanitize(html);
+                                    updatedEntry.renderedContent = DOMPurify.sanitize(html, { ADD_ATTR: ['data-diagram'], ADD_TAGS: ['svg', 'circle', 'path'] });
                                 } else {
                                     // Syntax highlight then linkify
                                     const ext = data.extension;
@@ -342,7 +342,7 @@
                                 if (currentEntry.isMarkdown) {
                                     let html = marked.parse(this.editContent);
                                     html = window.linkifyFilePaths(html);
-                                    currentEntry.renderedContent = DOMPurify.sanitize(html);
+                                    currentEntry.renderedContent = DOMPurify.sanitize(html, { ADD_ATTR: ['data-diagram'], ADD_TAGS: ['svg', 'circle', 'path'] });
                                 } else {
                                     let highlighted;
                                     if (ext && hljs.getLanguage(ext)) {

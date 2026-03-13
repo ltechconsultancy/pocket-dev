@@ -610,6 +610,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pako@2/dist/pako.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
           integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
           crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -712,6 +714,67 @@
         .mermaid-toolbar .mermaid-copied {
             color: #4ade80 !important;
             border-color: #4ade80 !important;
+        }
+        /* Rendered diagram is clickable to zoom */
+        .mermaid-block.mermaid-done { cursor: zoom-in; }
+        .mermaid-block.mermaid-done svg { pointer-events: none; }
+
+        /* Fullscreen zoom overlay */
+        #mermaid-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(0, 0, 0, 0.88);
+            backdrop-filter: blur(6px);
+            flex-direction: column;
+        }
+        #mermaid-overlay.mermaid-overlay-open { display: flex; }
+        #mermaid-overlay-header {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0.6em 0.8em;
+            gap: 0.4em;
+            flex-shrink: 0;
+        }
+        #mermaid-overlay-container {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+        #mermaid-overlay-container svg {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
+        }
+        /* Zoom controls — bottom-center */
+        #mermaid-zoom-controls {
+            display: flex;
+            justify-content: center;
+            gap: 0.4em;
+            padding: 0.7em;
+            flex-shrink: 0;
+        }
+        .mermaid-overlay-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35em;
+            background: rgba(31, 41, 55, 0.92);
+            color: #d1d5db;
+            border: 1px solid #4b5563;
+            border-radius: 0.4em;
+            padding: 0.3em 0.7em;
+            font-size: 0.8em;
+            font-family: ui-sans-serif, system-ui, sans-serif;
+            cursor: pointer;
+            backdrop-filter: blur(4px);
+            transition: color 0.12s, border-color 0.12s, background 0.12s;
+        }
+        .mermaid-overlay-btn:hover {
+            background: rgba(55, 65, 81, 0.97);
+            color: #f9fafb;
+            border-color: #6b7280;
         }
 
         /* File path links - clickable paths that open file preview modal */
@@ -1233,23 +1296,84 @@
         let _mermaidTimer = null;
         let _mermaidCounter = 0;
 
-        // Attach copy + open-in-mermaid.live toolbar to a rendered block.
-        // Copies raw Mermaid source (no ``` fences) – paste directly into mermaid.live.
-        function _attachMermaidToolbar(block, rawCode) {
-            // Remove stale toolbar from a previous cache-restore
-            block.querySelector('.mermaid-toolbar')?.remove();
+        // ── Helpers ──────────────────────────────────────────────────────────────
 
-            // Build mermaid.live deep-link: base64-encoded JSON {code, mermaid:{}}
-            let liveUrl = '#';
+        // UTF-8-safe base64 decode (TextDecoder, no deprecated escape())
+        function _mermaidDecode(encoded) {
+            return new TextDecoder().decode(
+                Uint8Array.from(atob(encoded), c => c.charCodeAt(0))
+            );
+        }
+
+        // Build a mermaid.live #pako: deep-link (pako-deflated URL-safe base64)
+        function _mermaidLiveUrl(rawCode) {
             try {
                 const payload = JSON.stringify({ code: rawCode, mermaid: {} });
-                liveUrl = 'https://mermaid.live/edit#base64:' + btoa(unescape(encodeURIComponent(payload)));
-            } catch (_) {}
+                const compressed = pako.deflate(new TextEncoder().encode(payload), { level: 9 });
+                let bin = '';
+                for (const b of compressed) bin += String.fromCharCode(b);
+                const b64 = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+                return `https://mermaid.live/edit#pako:${b64}`;
+            } catch (_) { return '#'; }
+        }
 
+        // ── Fullscreen zoom overlay ───────────────────────────────────────────────
+
+        let _panZoomInstance = null;
+
+        function _openMermaidZoom(block) {
+            const svg = block.querySelector('svg');
+            if (!svg) return;
+
+            const overlay = document.getElementById('mermaid-overlay');
+            const container = document.getElementById('mermaid-overlay-container');
+
+            // Clone SVG, reset fixed dimensions so it fills the container
+            const cloned = svg.cloneNode(true);
+            cloned.removeAttribute('width');
+            cloned.removeAttribute('height');
+            cloned.removeAttribute('style');
+            cloned.style.width = '100%';
+            cloned.style.height = '100%';
+
+            container.innerHTML = '';
+            container.appendChild(cloned);
+            overlay.classList.add('mermaid-overlay-open');
+            document.body.style.overflow = 'hidden';
+
+            // Init svg-pan-zoom after overlay is visible
+            requestAnimationFrame(() => {
+                _panZoomInstance = svgPanZoom(cloned, {
+                    zoomEnabled: true,
+                    panEnabled: true,
+                    controlIconsEnabled: false,
+                    fit: true,
+                    center: true,
+                    minZoom: 0.1,
+                    maxZoom: 20,
+                    zoomScaleSensitivity: 0.3,
+                });
+            });
+        }
+
+        function _closeMermaidZoom() {
+            const overlay = document.getElementById('mermaid-overlay');
+            if (_panZoomInstance) { try { _panZoomInstance.destroy(); } catch (_) {} _panZoomInstance = null; }
+            overlay.classList.remove('mermaid-overlay-open');
+            document.getElementById('mermaid-overlay-container').innerHTML = '';
+            document.body.style.overflow = '';
+        }
+
+        // ── Toolbar ───────────────────────────────────────────────────────────────
+
+        function _attachMermaidToolbar(block, rawCode) {
+            block.querySelector('.mermaid-toolbar')?.remove();
+
+            const liveUrl = _mermaidLiveUrl(rawCode);
             const toolbar = document.createElement('div');
             toolbar.className = 'mermaid-toolbar';
 
-            // ── Copy button ──────────────────────────────────────────────────────
+            // Copy button
             const copyBtn = document.createElement('button');
             copyBtn.title = 'Copy raw Mermaid source (no ``` fences — paste into mermaid.live or any Mermaid editor)';
             copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i> Copy';
@@ -1258,14 +1382,10 @@
                 try {
                     await navigator.clipboard.writeText(rawCode);
                 } catch (_) {
-                    // Fallback for non-secure contexts
                     const ta = Object.assign(document.createElement('textarea'), {
                         value: rawCode, style: 'position:fixed;opacity:0'
                     });
-                    document.body.appendChild(ta);
-                    ta.select();
-                    document.execCommand('copy');
-                    document.body.removeChild(ta);
+                    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
                 }
                 copyBtn.classList.add('mermaid-copied');
                 copyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
@@ -1275,7 +1395,7 @@
                 }, 2000);
             });
 
-            // ── Open in mermaid.live button ───────────────────────────────────────
+            // Open in mermaid.live button
             const openBtn = document.createElement('a');
             openBtn.href = liveUrl;
             openBtn.target = '_blank';
@@ -1286,7 +1406,14 @@
             toolbar.appendChild(copyBtn);
             toolbar.appendChild(openBtn);
             block.appendChild(toolbar);
+
+            // Click anywhere on the diagram (outside toolbar) → fullscreen zoom
+            block.addEventListener('click', (e) => {
+                if (!e.target.closest('.mermaid-toolbar')) _openMermaidZoom(block);
+            });
         }
+
+        // ── Renderer ──────────────────────────────────────────────────────────────
 
         async function _renderMermaidBlocks(root) {
             const blocks = (root || document).querySelectorAll('.mermaid-block:not(.mermaid-done)');
@@ -1296,10 +1423,8 @@
                 const encoded = block.dataset.diagram;
                 if (!encoded) continue;
 
-                // Mark immediately to prevent duplicate renders
                 block.classList.add('mermaid-done');
-
-                const rawCode = decodeURIComponent(escape(atob(encoded)));
+                const rawCode = _mermaidDecode(encoded);
 
                 if (_mermaidCache.has(encoded)) {
                     block.innerHTML = _mermaidCache.get(encoded);
@@ -1314,7 +1439,7 @@
                     block.innerHTML = svg;
                     _attachMermaidToolbar(block, rawCode);
                 } catch (err) {
-                    // Diagram incomplete during streaming – unmark so next tick retries
+                    // Diagram incomplete during streaming — unmark so next tick retries
                     block.classList.remove('mermaid-done');
                 }
             }
@@ -1328,6 +1453,32 @@
 
         document.addEventListener('DOMContentLoaded', () => {
             _mermaidObserver.observe(document.body, { childList: true, subtree: true });
+
+            // ── Build overlay DOM ────────────────────────────────────────────────
+            const overlay = document.createElement('div');
+            overlay.id = 'mermaid-overlay';
+            overlay.setAttribute('role', 'dialog');
+            overlay.setAttribute('aria-modal', 'true');
+            overlay.innerHTML = `
+                <div id="mermaid-overlay-header">
+                    <button class="mermaid-overlay-btn" id="mermaid-overlay-close" title="Close (Esc)">
+                        <i class="fa-solid fa-xmark"></i> Close
+                    </button>
+                </div>
+                <div id="mermaid-overlay-container"></div>
+                <div id="mermaid-zoom-controls">
+                    <button class="mermaid-overlay-btn" id="mermaid-zoom-out" title="Zoom out"><i class="fa-solid fa-minus"></i></button>
+                    <button class="mermaid-overlay-btn" id="mermaid-zoom-reset" title="Reset zoom"><i class="fa-solid fa-compress"></i> Fit</button>
+                    <button class="mermaid-overlay-btn" id="mermaid-zoom-in" title="Zoom in"><i class="fa-solid fa-plus"></i></button>
+                </div>`;
+            document.body.appendChild(overlay);
+
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) _closeMermaidZoom(); });
+            overlay.querySelector('#mermaid-overlay-close').addEventListener('click', _closeMermaidZoom);
+            overlay.querySelector('#mermaid-zoom-in').addEventListener('click', () => _panZoomInstance?.zoomIn());
+            overlay.querySelector('#mermaid-zoom-out').addEventListener('click', () => _panZoomInstance?.zoomOut());
+            overlay.querySelector('#mermaid-zoom-reset').addEventListener('click', () => { _panZoomInstance?.fit(); _panZoomInstance?.center(); });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && _panZoomInstance) _closeMermaidZoom(); });
         });
 
         // ─── Configure marked.js ────────────────────────────────────────────────
@@ -1336,8 +1487,8 @@
 
         _markedRenderer.code = function({ text, lang }) {
             if (lang === 'mermaid') {
-                // Base64-encode the raw diagram so it survives DOMPurify unharmed
-                const encoded = btoa(unescape(encodeURIComponent(text)));
+                // UTF-8-safe base64 encode (TextEncoder, no deprecated escape())
+                const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(text)));
                 const loadingSpinner = `<svg class="animate-spin" style="width:1em;height:1em;display:inline-block;vertical-align:middle" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`;
                 return `<div class="mermaid-block" data-diagram="${encoded}"><div class="mermaid-loading">${loadingSpinner} Rendering diagram…</div></div>`;
             }

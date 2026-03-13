@@ -609,6 +609,7 @@
             crossorigin="anonymous"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
           integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
           crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -636,6 +637,42 @@
         /* Wrapper for horizontal scroll on tables - applied via JS */
         .table-wrapper { overflow-x: auto; margin: 1em 0; -webkit-overflow-scrolling: touch; }
         .table-wrapper table { margin: 0; }
+
+        /* Mermaid diagram blocks */
+        .mermaid-block {
+            background: #111827;
+            border: 1px solid #374151;
+            border-radius: 0.5em;
+            padding: 1em;
+            margin: 1em 0;
+            overflow-x: auto;
+            text-align: center;
+        }
+        .mermaid-block svg {
+            max-width: 100%;
+            height: auto;
+        }
+        /* Mermaid loading placeholder */
+        .mermaid-loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5em;
+            color: #6b7280;
+            font-size: 0.85em;
+            padding: 1.5em 0;
+        }
+        /* Mermaid error state */
+        .mermaid-error {
+            color: #f87171;
+            font-size: 0.8em;
+            font-family: monospace;
+            text-align: left;
+            white-space: pre-wrap;
+            padding: 0.5em;
+            background: rgba(239,68,68,0.1);
+            border-radius: 0.25em;
+        }
 
         /* File path links - clickable paths that open file preview modal */
         .file-path-link {
@@ -1127,16 +1164,99 @@
     @include('partials.chat.modals')
 
     <script>
-        // Configure marked.js
+        // ─── Mermaid initialisation ──────────────────────────────────────────────
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'dark',
+            darkMode: true,
+            fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+            securityLevel: 'loose',
+            themeVariables: {
+                darkMode: true,
+                background: '#111827',
+                mainBkg: '#1f2937',
+                nodeBorder: '#4b5563',
+                clusterBkg: '#1f2937',
+                titleColor: '#e5e7eb',
+                edgeLabelBackground: '#1f2937',
+                lineColor: '#6b7280',
+                primaryColor: '#1d4ed8',
+                primaryTextColor: '#e5e7eb',
+                primaryBorderColor: '#3b82f6',
+                secondaryColor: '#374151',
+                tertiaryColor: '#1f2937',
+            }
+        });
+
+        // Cache: encoded diagram → rendered SVG (avoids re-rendering on stream updates)
+        const _mermaidCache = new Map();
+        let _mermaidTimer = null;
+        let _mermaidCounter = 0;
+
+        async function _renderMermaidBlocks(root) {
+            const blocks = (root || document).querySelectorAll('.mermaid-block:not(.mermaid-done)');
+            if (!blocks.length) return;
+
+            for (const block of blocks) {
+                const encoded = block.dataset.diagram;
+                if (!encoded) continue;
+
+                // Mark immediately to prevent duplicate renders
+                block.classList.add('mermaid-done');
+
+                if (_mermaidCache.has(encoded)) {
+                    block.innerHTML = _mermaidCache.get(encoded);
+                    continue;
+                }
+
+                try {
+                    const code = decodeURIComponent(escape(atob(encoded)));
+                    const id = `mermaid-svg-${++_mermaidCounter}`;
+                    const { svg } = await mermaid.render(id, code);
+                    _mermaidCache.set(encoded, svg);
+                    block.innerHTML = svg;
+                } catch (err) {
+                    // Diagram incomplete during streaming – unmark so next tick retries
+                    block.classList.remove('mermaid-done');
+                }
+            }
+        }
+
+        // Debounced MutationObserver: coalesces rapid stream updates into one render pass
+        const _mermaidObserver = new MutationObserver(() => {
+            clearTimeout(_mermaidTimer);
+            _mermaidTimer = setTimeout(() => _renderMermaidBlocks(), 300);
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            _mermaidObserver.observe(document.body, { childList: true, subtree: true });
+        });
+
+        // ─── Configure marked.js ────────────────────────────────────────────────
+        // Custom renderer: intercept ```mermaid fences before highlight.js touches them
+        const _markedRenderer = new marked.Renderer();
+
+        _markedRenderer.code = function({ text, lang }) {
+            if (lang === 'mermaid') {
+                // Base64-encode the raw diagram so it survives DOMPurify unharmed
+                const encoded = btoa(unescape(encodeURIComponent(text)));
+                const loadingSpinner = `<svg class="animate-spin" style="width:1em;height:1em;display:inline-block;vertical-align:middle" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`;
+                return `<div class="mermaid-block" data-diagram="${encoded}"><div class="mermaid-loading">${loadingSpinner} Rendering diagram…</div></div>`;
+            }
+            // Fallback to highlight.js for all other languages
+            if (lang && hljs.getLanguage(lang)) {
+                try {
+                    return `<pre><code class="hljs language-${lang}">${hljs.highlight(text, { language: lang }).value}</code></pre>`;
+                } catch (_) {}
+            }
+            return `<pre><code class="hljs">${hljs.highlightAuto(text).value}</code></pre>`;
+        };
+
+        marked.use({ renderer: _markedRenderer });
+
         marked.setOptions({
             breaks: true,
             gfm: true,
-            highlight: function(code, lang) {
-                if (lang && hljs.getLanguage(lang)) {
-                    try { return hljs.highlight(code, { language: lang }).value; } catch (err) {}
-                }
-                return hljs.highlightAuto(code).value;
-            }
         });
 
         function chatApp() {
@@ -5206,7 +5326,7 @@
                 renderMarkdown(text) {
                     if (!text) return '';
 
-                    // Parse markdown, linkify file paths, then sanitize
+                    // Parse markdown (mermaid blocks handled by custom renderer), linkify file paths
                     let html = marked.parse(text);
                     html = window.linkifyFilePaths(html);
 
@@ -5214,7 +5334,13 @@
                     html = html.replace(/<table>/g, '<div class="table-wrapper"><table>');
                     html = html.replace(/<\/table>/g, '</table></div>');
 
-                    return DOMPurify.sanitize(html);
+                    // Allow data-diagram attribute (used by mermaid-block divs) and the
+                    // inline spinner SVG generated inside mermaid-loading placeholders.
+                    return DOMPurify.sanitize(html, {
+                        ADD_ATTR: ['data-diagram'],
+                        ADD_TAGS: ['svg', 'circle', 'path'],
+                        FORCE_BODY: false,
+                    });
                 },
 
                 formatTimestamp(ts) {

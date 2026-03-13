@@ -640,6 +640,7 @@
 
         /* Mermaid diagram blocks */
         .mermaid-block {
+            position: relative;
             background: #111827;
             border: 1px solid #374151;
             border-radius: 0.5em;
@@ -672,6 +673,45 @@
             padding: 0.5em;
             background: rgba(239,68,68,0.1);
             border-radius: 0.25em;
+        }
+        /* Mermaid action toolbar (copy + open-in-mermaid.live) */
+        .mermaid-toolbar {
+            position: absolute;
+            top: 0.5em;
+            right: 0.5em;
+            display: flex;
+            gap: 0.3em;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+        }
+        .mermaid-block:hover .mermaid-toolbar { opacity: 1; }
+        .mermaid-toolbar button,
+        .mermaid-toolbar a {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3em;
+            background: rgba(31, 41, 55, 0.92);
+            color: #9ca3af;
+            border: 1px solid #4b5563;
+            border-radius: 0.35em;
+            padding: 0.25em 0.55em;
+            font-size: 0.72em;
+            font-family: ui-sans-serif, system-ui, sans-serif;
+            cursor: pointer;
+            text-decoration: none;
+            line-height: 1.4;
+            backdrop-filter: blur(4px);
+            transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+        }
+        .mermaid-toolbar button:hover,
+        .mermaid-toolbar a:hover {
+            background: rgba(55, 65, 81, 0.97);
+            color: #e5e7eb;
+            border-color: #6b7280;
+        }
+        .mermaid-toolbar .mermaid-copied {
+            color: #4ade80 !important;
+            border-color: #4ade80 !important;
         }
 
         /* File path links - clickable paths that open file preview modal */
@@ -1193,6 +1233,61 @@
         let _mermaidTimer = null;
         let _mermaidCounter = 0;
 
+        // Attach copy + open-in-mermaid.live toolbar to a rendered block.
+        // Copies raw Mermaid source (no ``` fences) – paste directly into mermaid.live.
+        function _attachMermaidToolbar(block, rawCode) {
+            // Remove stale toolbar from a previous cache-restore
+            block.querySelector('.mermaid-toolbar')?.remove();
+
+            // Build mermaid.live deep-link: base64-encoded JSON {code, mermaid:{}}
+            let liveUrl = '#';
+            try {
+                const payload = JSON.stringify({ code: rawCode, mermaid: {} });
+                liveUrl = 'https://mermaid.live/edit#base64:' + btoa(unescape(encodeURIComponent(payload)));
+            } catch (_) {}
+
+            const toolbar = document.createElement('div');
+            toolbar.className = 'mermaid-toolbar';
+
+            // ── Copy button ──────────────────────────────────────────────────────
+            const copyBtn = document.createElement('button');
+            copyBtn.title = 'Copy raw Mermaid source (no ``` fences — paste into mermaid.live or any Mermaid editor)';
+            copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i> Copy';
+            copyBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                try {
+                    await navigator.clipboard.writeText(rawCode);
+                } catch (_) {
+                    // Fallback for non-secure contexts
+                    const ta = Object.assign(document.createElement('textarea'), {
+                        value: rawCode, style: 'position:fixed;opacity:0'
+                    });
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                }
+                copyBtn.classList.add('mermaid-copied');
+                copyBtn.innerHTML = '<i class="fa-solid fa-check"></i> Copied!';
+                setTimeout(() => {
+                    copyBtn.classList.remove('mermaid-copied');
+                    copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i> Copy';
+                }, 2000);
+            });
+
+            // ── Open in mermaid.live button ───────────────────────────────────────
+            const openBtn = document.createElement('a');
+            openBtn.href = liveUrl;
+            openBtn.target = '_blank';
+            openBtn.rel = 'noopener noreferrer';
+            openBtn.title = 'Open in mermaid.live editor';
+            openBtn.innerHTML = '<i class="fa-solid fa-arrow-up-right-from-square"></i> mermaid.live';
+
+            toolbar.appendChild(copyBtn);
+            toolbar.appendChild(openBtn);
+            block.appendChild(toolbar);
+        }
+
         async function _renderMermaidBlocks(root) {
             const blocks = (root || document).querySelectorAll('.mermaid-block:not(.mermaid-done)');
             if (!blocks.length) return;
@@ -1204,17 +1299,20 @@
                 // Mark immediately to prevent duplicate renders
                 block.classList.add('mermaid-done');
 
+                const rawCode = decodeURIComponent(escape(atob(encoded)));
+
                 if (_mermaidCache.has(encoded)) {
                     block.innerHTML = _mermaidCache.get(encoded);
+                    _attachMermaidToolbar(block, rawCode);
                     continue;
                 }
 
                 try {
-                    const code = decodeURIComponent(escape(atob(encoded)));
                     const id = `mermaid-svg-${++_mermaidCounter}`;
-                    const { svg } = await mermaid.render(id, code);
+                    const { svg } = await mermaid.render(id, rawCode);
                     _mermaidCache.set(encoded, svg);
                     block.innerHTML = svg;
+                    _attachMermaidToolbar(block, rawCode);
                 } catch (err) {
                     // Diagram incomplete during streaming – unmark so next tick retries
                     block.classList.remove('mermaid-done');

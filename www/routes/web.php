@@ -145,6 +145,14 @@ Route::get("/config/backup/download/{filename}", [\App\Http\Controllers\BackupCo
 Route::delete("/config/backup/{filename}", [\App\Http\Controllers\BackupController::class, "delete"])->name("config.backup.delete");
 Route::post("/config/backup/restore", [\App\Http\Controllers\BackupController::class, "restore"])->name("config.backup.restore");
 
+// System management
+Route::get("/config/system", [ConfigController::class, "showSystem"])->name("config.system");
+Route::post("/config/system/check-update", [ConfigController::class, "checkUpdate"])->name("config.system.check-update");
+Route::post("/config/system/apply-update", [ConfigController::class, "applyUpdate"])->name("config.system.apply-update");
+Route::post("/config/system/pull-main", [ConfigController::class, "pullFromMain"])->name("config.system.pull-main");
+Route::post("/config/system/restart", [ConfigController::class, "restartContainers"])->name("config.system.restart");
+Route::post("/config/system/rebuild", [ConfigController::class, "rebuildContainers"])->name("config.system.rebuild");
+
 // Developer tools (only available in local environment)
 if (app()->environment('local')) {
     Route::get("/config/developer", [ConfigController::class, "showDeveloper"])->name("config.developer");

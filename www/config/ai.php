@@ -258,7 +258,7 @@ return [
             [
                 'model_id' => 'gpt-5.1-codex-max',
                 'display_name' => 'Codex 5.1 Max',
-                'context_window' => 400000,
+                'context_window' => 272000,
                 'max_output_tokens' => 32768,
                 'input_price_per_million' => 1.25,
                 'output_price_per_million' => 10.00,
@@ -268,7 +268,7 @@ return [
             [
                 'model_id' => 'gpt-5.1-codex-mini',
                 'display_name' => 'Codex 5.1 Mini',
-                'context_window' => 200000,
+                'context_window' => 272000,
                 'max_output_tokens' => 32768,
                 'input_price_per_million' => 0.25,
                 'output_price_per_million' => 2.00,
@@ -278,7 +278,7 @@ return [
             [
                 'model_id' => 'gpt-5.2-codex',
                 'display_name' => 'GPT-5.2 Codex',
-                'context_window' => 400000,
+                'context_window' => 272000,
                 'max_output_tokens' => 128000,
                 'input_price_per_million' => 1.75,
                 'output_price_per_million' => 14.00,
@@ -341,7 +341,7 @@ return [
             [
                 'model_id' => 'gpt-5.3-codex',
                 'display_name' => 'GPT-5.3 Codex',
-                'context_window' => 400000,
+                'context_window' => 272000,
                 'max_output_tokens' => 128000,
                 'input_price_per_million' => 1.75,
                 'output_price_per_million' => 14.00,
@@ -351,7 +351,7 @@ return [
             [
                 'model_id' => 'gpt-5.2-codex',
                 'display_name' => 'GPT-5.2 Codex',
-                'context_window' => 400000,
+                'context_window' => 272000,
                 'max_output_tokens' => 128000,
                 'input_price_per_million' => null,
                 'output_price_per_million' => null,
@@ -361,7 +361,7 @@ return [
             [
                 'model_id' => 'gpt-5.1-codex-max',
                 'display_name' => 'GPT-5.1 Codex Max',
-                'context_window' => 400000,
+                'context_window' => 272000,
                 'max_output_tokens' => 32768,
                 'input_price_per_million' => null,
                 'output_price_per_million' => null,
@@ -371,7 +371,7 @@ return [
             [
                 'model_id' => 'gpt-5.1-codex-mini',
                 'display_name' => 'GPT-5.1 Codex Mini',
-                'context_window' => 200000,
+                'context_window' => 272000,
                 'max_output_tokens' => 32768,
                 'input_price_per_million' => null,
                 'output_price_per_million' => null,

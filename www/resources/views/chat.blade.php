@@ -2028,7 +2028,7 @@
                         getCurrentAgent: () => this.currentAgent,
                         updateContext: (data) => {
                             if (data.contextWindowSize) this.contextWindowSize = data.contextWindowSize;
-                            if (data.effectiveContextWindow) this.effectiveContextWindow = data.effectiveContextWindow;
+                            if (data.effectiveContextWindow !== undefined) this.effectiveContextWindow = data.effectiveContextWindow;
                             if (data.contextPercentage !== undefined) {
                                 this.contextPercentage = data.contextPercentage;
                                 this.lastContextTokens = data.lastContextTokens || 0;
@@ -5285,6 +5285,12 @@
                     const attachments = Alpine.store('attachments');
                     const trimmedPrompt = this.prompt.trim();
 
+                    // Block sending while conversation is being loaded (prevents race conditions)
+                    if (this.loadingConversation) {
+                        this.showError('Please wait for the conversation to load');
+                        return;
+                    }
+
                     if (trimmedPrompt === '/compact' && !this.activeSkill) {
                         await this.sendCompactCommand();
                         return;
@@ -5293,12 +5299,6 @@
                     // Allow sending if there's text OR files OR active skill
                     if (!this.prompt.trim() && !attachments.hasFiles && !this.activeSkill) return;
                     if (this.isStreaming) return;
-
-                    // Block sending while conversation is being loaded (prevents race conditions)
-                    if (this.loadingConversation) {
-                        this.showError('Please wait for the conversation to load');
-                        return;
-                    }
 
                     // Block unmatched /commands - if prompt starts with / but no skill is active
                     if (this.prompt.trim().startsWith('/') && !this.activeSkill) {
@@ -5462,6 +5462,11 @@
                 },
 
                 async sendCompactCommand() {
+                    if (this.loadingConversation) {
+                        this.showError('Please wait for the conversation to load');
+                        return;
+                    }
+
                     if (!this.currentConversationUuid) {
                         this.showError('/compact requires an existing conversation.');
                         return;

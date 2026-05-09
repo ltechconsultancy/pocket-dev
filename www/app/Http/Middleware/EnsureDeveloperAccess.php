@@ -18,16 +18,15 @@ class EnsureDeveloperAccess
             return $next($request);
         }
 
-        // If reverse proxy auth is active and propagated to PHP, allow.
-        if (!empty($request->server('PHP_AUTH_USER')) || !empty($request->server('REMOTE_USER'))) {
-            return $next($request);
-        }
-
-        // Fallback: validate Authorization header directly against env credentials.
+        // Validate against configured credentials (covers both direct Basic Auth
+        // and credentials propagated by a reverse proxy into PHP_AUTH_USER/PASS).
         $configuredUser = env('BASIC_AUTH_USER');
         $configuredPass = env('BASIC_AUTH_PASS');
-        if (!empty($configuredUser) && !empty($configuredPass) && $this->matchesBasicAuth($request, $configuredUser, $configuredPass)) {
-            return $next($request);
+
+        if (!empty($configuredUser) && !empty($configuredPass)) {
+            if ($this->matchesBasicAuth($request, $configuredUser, $configuredPass)) {
+                return $next($request);
+            }
         }
 
         return response('Unauthorized', 401, [

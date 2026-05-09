@@ -145,13 +145,21 @@ Route::get("/config/backup/download/{filename}", [\App\Http\Controllers\BackupCo
 Route::delete("/config/backup/{filename}", [\App\Http\Controllers\BackupController::class, "delete"])->name("config.backup.delete");
 Route::post("/config/backup/restore", [\App\Http\Controllers\BackupController::class, "restore"])->name("config.backup.restore");
 
-// System management
+// System management (available in both environments)
+// GET is accessible without explicit auth (EnsureSetupComplete handles it),
+// but mutation routes require auth middleware as defense-in-depth.
 Route::get("/config/system", [ConfigController::class, "showSystem"])->name("config.system");
-Route::post("/config/system/check-update", [ConfigController::class, "checkUpdate"])->name("config.system.check-update");
-Route::post("/config/system/apply-update", [ConfigController::class, "applyUpdate"])->name("config.system.apply-update");
-Route::post("/config/system/pull-main", [ConfigController::class, "pullFromMain"])->name("config.system.pull-main");
-Route::post("/config/system/restart", [ConfigController::class, "restartContainers"])->name("config.system.restart");
-Route::post("/config/system/rebuild", [ConfigController::class, "rebuildContainers"])->name("config.system.rebuild");
+Route::middleware('auth')->group(function () {
+    Route::post("/config/system/restart", [ConfigController::class, "restartContainers"])->name("config.system.restart");
+    Route::post("/config/system/check-update", [ConfigController::class, "checkUpdate"])->name("config.system.check-update");
+    Route::post("/config/system/apply-update", [ConfigController::class, "applyUpdate"])->name("config.system.apply-update");
+
+    // Local-only operations (rebuild from scratch, git pull)
+    if (app()->environment('local')) {
+        Route::post("/config/system/rebuild", [ConfigController::class, "rebuildContainers"])->name("config.system.rebuild");
+        Route::post("/config/system/pull-main", [ConfigController::class, "pullFromMain"])->name("config.system.pull-main");
+    }
+});
 
 // Developer tools (only available in local environment)
 if (app()->environment('local')) {

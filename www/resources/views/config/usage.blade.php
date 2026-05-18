@@ -582,6 +582,7 @@ function usageDashboard() {
             ];
 
             const isCost = this.chartMetric === 'cost';
+            const self = this;
 
             const datasets = groups.map((g, i) => ({
                 label: this.chartGroupBy === 'model' ? g : this.providerName(g),
@@ -598,8 +599,6 @@ function usageDashboard() {
                 borderColor: palette[i % palette.length].border,
                 borderWidth: 1,
             }));
-
-            const self = this;
             this.chart = new Chart(canvas, {
                 type: 'bar',
                 data: { labels: dates.map(d => d.slice(5)), datasets },

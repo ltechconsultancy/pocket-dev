@@ -313,6 +313,16 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         $contextInputTokens = null;
         $contextOutputTokens = null;
 
+        // CLI providers report cumulative context window tokens, not per-turn deltas.
+        // Track previous cumulative so we can compute the actual per-turn delta before storage.
+        // Cache tokens: cache_read is semi-cumulative (grows with context), cache_creation
+        // is per-turn for Claude but cumulative for Codex. We delta both to be safe.
+        $isCliProvider = $provider instanceof AbstractCliProvider;
+        $prevCumulativeInput = $isCliProvider ? ($conversation->last_reported_input_tokens ?? 0) : 0;
+        $prevCumulativeOutput = $isCliProvider ? ($conversation->last_reported_output_tokens ?? 0) : 0;
+        $prevCumulativeCacheRead = $isCliProvider ? ($conversation->last_reported_cache_read ?? 0) : 0;
+        $prevCumulativeCacheCreation = $isCliProvider ? ($conversation->last_reported_cache_creation ?? 0) : 0;
+
         // Get the model for cost calculation
         $aiModel = $modelRepository->findByModelId($conversation->model);
         if (!$aiModel) {
@@ -369,7 +379,8 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                     $conversation, $provider, $streamManager, $contentBlocks,
                     $inputTokens, $outputTokens, $cacheCreationTokens, $cacheReadTokens,
                     $turnCost, $userMessage, $contextInputTokens, $contextOutputTokens,
-                    $streamedToolResults,
+                    $streamedToolResults, $isCliProvider, $prevCumulativeInput, $prevCumulativeOutput,
+                    $prevCumulativeCacheRead, $prevCumulativeCacheCreation,
                 );
                 return;
             }
@@ -388,15 +399,34 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                 $contextOutputTokens = $event->metadata['context_output_tokens'] ?? $contextOutputTokens;
 
                 // Calculate cost using model pricing
+                // For CLI providers: all token fields are cumulative. Compute deltas
+                // for each field, then derive uncached input for correct tiered pricing.
                 $cost = null;
                 if ($aiModel) {
-                    $cost = $modelRepository->calculateCost(
-                        $conversation->model,
-                        $inputTokens,
-                        $outputTokens,
-                        $cacheCreationTokens,
-                        $cacheReadTokens
-                    );
+                    if ($isCliProvider) {
+                        $deltaInput = max(0, $inputTokens - $prevCumulativeInput);
+                        $deltaOutput = max(0, $outputTokens - $prevCumulativeOutput);
+                        $deltaCacheRead = max(0, ($cacheReadTokens ?? 0) - $prevCumulativeCacheRead);
+                        $deltaCacheCreation = max(0, ($cacheCreationTokens ?? 0) - $prevCumulativeCacheCreation);
+                        // input_tokens = uncached + cache_read + cache_creation (for Claude Code)
+                        // Subtract cache portions to get uncached input for full-price billing
+                        $uncachedInput = max(0, $deltaInput - $deltaCacheRead - $deltaCacheCreation);
+                        $cost = $modelRepository->calculateCost(
+                            $conversation->model,
+                            $uncachedInput,
+                            $deltaOutput,
+                            $deltaCacheCreation,
+                            $deltaCacheRead
+                        );
+                    } else {
+                        $cost = $modelRepository->calculateCost(
+                            $conversation->model,
+                            $inputTokens,
+                            $outputTokens,
+                            $cacheCreationTokens,
+                            $cacheReadTokens
+                        );
+                    }
                     $turnCost = $cost;
                 }
 
@@ -610,7 +640,8 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                 $conversation, $provider, $streamManager, $contentBlocks,
                 $inputTokens, $outputTokens, $cacheCreationTokens, $cacheReadTokens,
                 $turnCost, $userMessage, $contextInputTokens, $contextOutputTokens,
-                $streamedToolResults,
+                $streamedToolResults, $isCliProvider, $prevCumulativeInput, $prevCumulativeOutput,
+                $prevCumulativeCacheRead, $prevCumulativeCacheCreation,
             );
             return;
         }
@@ -642,20 +673,41 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             ]);
         }
 
+        // For CLI providers, convert cumulative tokens to per-turn deltas before storage.
+        // The raw cumulative values are preserved for context window tracking.
+        $billingInputTokens = $inputTokens;
+        $billingOutputTokens = $outputTokens;
+        $billingCacheRead = $cacheReadTokens;
+        $billingCacheCreation = $cacheCreationTokens;
+        if ($isCliProvider) {
+            $billingInputTokens = max(0, $inputTokens - $prevCumulativeInput);
+            $billingOutputTokens = max(0, $outputTokens - $prevCumulativeOutput);
+            $billingCacheRead = max(0, ($cacheReadTokens ?? 0) - $prevCumulativeCacheRead) ?: null;
+            $billingCacheCreation = max(0, ($cacheCreationTokens ?? 0) - $prevCumulativeCacheCreation) ?: null;
+
+            // Update cumulative tracking for next turn's delta calculation
+            $conversation->update([
+                'last_reported_input_tokens' => $inputTokens,
+                'last_reported_output_tokens' => $outputTokens,
+                'last_reported_cache_read' => $cacheReadTokens ?? 0,
+                'last_reported_cache_creation' => $cacheCreationTokens ?? 0,
+            ]);
+        }
+
         // Save assistant message (gets sequence after compaction if present)
         RequestFlowLogger::log('job.loop.saving_assistant_message', 'Saving assistant message', [
             'block_count' => count($contentBlocks),
-            'input_tokens' => $inputTokens,
-            'output_tokens' => $outputTokens,
+            'input_tokens' => $billingInputTokens,
+            'output_tokens' => $billingOutputTokens,
             'stop_reason' => $stopReason,
         ]);
         $this->saveAssistantMessage(
             $conversation,
             $contentBlocks,
-            $inputTokens,
-            $outputTokens,
-            $cacheCreationTokens,
-            $cacheReadTokens,
+            $billingInputTokens,
+            $billingOutputTokens,
+            $billingCacheRead,
+            $billingCacheCreation,
             $stopReason,
             $turnCost > 0 ? $turnCost : null,
             $contextInputTokens,
@@ -919,6 +971,11 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         ?int $contextInputTokens,
         ?int $contextOutputTokens,
         array $streamedToolResults = [],
+        bool $isCliProvider = false,
+        int $prevCumulativeInput = 0,
+        int $prevCumulativeOutput = 0,
+        int $prevCumulativeCacheRead = 0,
+        int $prevCumulativeCacheCreation = 0,
     ): void {
         Log::info('ProcessConversationStream: Abort requested', [
             'conversation' => $this->conversationUuid,
@@ -969,14 +1026,32 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             ]);
 
             if ($hasContentBlocks) {
+                // Convert cumulative to delta for CLI providers before saving
+                $billingInput = $inputTokens;
+                $billingOutput = $outputTokens;
+                $billingCacheRead = $cacheReadTokens;
+                $billingCacheCreation = $cacheCreationTokens;
+                if ($isCliProvider) {
+                    $billingInput = max(0, $inputTokens - $prevCumulativeInput);
+                    $billingOutput = max(0, $outputTokens - $prevCumulativeOutput);
+                    $billingCacheRead = max(0, ($cacheReadTokens ?? 0) - $prevCumulativeCacheRead) ?: null;
+                    $billingCacheCreation = max(0, ($cacheCreationTokens ?? 0) - $prevCumulativeCacheCreation) ?: null;
+                    $conversation->update([
+                        'last_reported_input_tokens' => $inputTokens,
+                        'last_reported_output_tokens' => $outputTokens,
+                        'last_reported_cache_read' => $cacheReadTokens ?? 0,
+                        'last_reported_cache_creation' => $cacheCreationTokens ?? 0,
+                    ]);
+                }
+
                 RequestFlowLogger::log('job.loop.abort_saving_message', 'Saving partial assistant message');
                 $assistantMessage = $this->saveAssistantMessage(
                     $conversation,
                     $contentBlocks,
-                    $inputTokens,
-                    $outputTokens,
-                    $cacheCreationTokens,
-                    $cacheReadTokens,
+                    $billingInput,
+                    $billingOutput,
+                    $billingCacheCreation,
+                    $billingCacheRead,
                     'aborted',
                     $turnCost > 0 ? $turnCost : null,
                     $contextInputTokens,

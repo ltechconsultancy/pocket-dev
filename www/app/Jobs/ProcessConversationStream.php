@@ -63,6 +63,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         SystemPromptBuilder $systemPromptBuilder,
         ModelRepository $modelRepository,
     ): void {
+        $jobStartedAt = now();
         RequestFlowLogger::startJob($this->conversationUuid, 'ProcessConversationStream');
         RequestFlowLogger::log('job.handle.start', 'Job handler started', [
             'prompt_length' => strlen($this->prompt),
@@ -154,6 +155,9 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                 // Dispatch async embedding job (runs after lock released)
                 RequestFlowLogger::log('job.handle.dispatching_embeddings', 'Dispatching embeddings job');
                 GenerateConversationEmbeddings::dispatch($conversation);
+
+                // Send push notification if enabled
+                $this->dispatchPushNotification($conversation, 'completed', $jobStartedAt);
             }
 
             RequestFlowLogger::endRequest('success');
@@ -169,6 +173,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             // $conversation may not be defined if firstOrFail() threw
             if (isset($conversation)) {
                 $conversation->markFailed();
+                $this->dispatchPushNotification($conversation, 'failed', $jobStartedAt);
             }
             $streamManager->failStream($this->conversationUuid, $e->getMessage());
             RequestFlowLogger::endRequest('failed');
@@ -1337,5 +1342,57 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
 
         return collect($content)
             ->contains(fn($block) => ($block['type'] ?? '') === 'text');
+    }
+
+    /**
+     * Dispatch a push notification if conditions are met.
+     */
+    private function dispatchPushNotification(Conversation $conversation, string $status, \Carbon\Carbon $jobStartedAt): void
+    {
+        try {
+            // Skip subagent conversations (they have no screen/session)
+            if (!$conversation->screen) {
+                return;
+            }
+
+            // Check if any push subscriptions exist (quick check to avoid unnecessary work)
+            if (\App\Models\PushSubscription::count() === 0) {
+                return;
+            }
+
+            // Check notification settings
+            $settingKey = $status === 'completed' ? 'push.notify_on_complete' : 'push.notify_on_failure';
+            if (!\App\Models\Setting::get($settingKey, true)) {
+                return;
+            }
+
+            // Check minimum duration threshold (use actual job run time, not conversation age)
+            $minDuration = (int) \App\Models\Setting::get('push.min_duration_seconds', 5);
+            if ($minDuration > 0) {
+                $duration = now()->diffInSeconds($jobStartedAt);
+                if ($duration < $minDuration) {
+                    return;
+                }
+            }
+
+            $title = $status === 'completed' ? 'Agent klaar' : 'Agent gefaald';
+            $body = $conversation->title ?? ($status === 'completed' ? 'Taak voltooid' : 'Taak mislukt');
+
+            $sessionId = $conversation->screen?->session_id;
+            $url = $sessionId ? "/session/{$sessionId}" : '/';
+
+            // userId is nullable — in no-auth mode sends to all subscriptions
+            $userId = \App\Models\User::first()?->id;
+
+            SendPushNotification::dispatch(
+                userId: $userId,
+                title: $title,
+                body: $body,
+                url: $url,
+            );
+        } catch (\Throwable $e) {
+            // Never let push notification errors affect the main flow
+            Log::warning('Push notification dispatch failed', ['error' => $e->getMessage()]);
+        }
     }
 }

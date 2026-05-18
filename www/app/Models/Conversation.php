@@ -30,6 +30,11 @@ class Conversation extends Model
         'working_directory',
         'total_input_tokens',
         'total_output_tokens',
+        // CLI cumulative token tracking (for delta calculation)
+        'last_reported_input_tokens',
+        'last_reported_output_tokens',
+        'last_reported_cache_read',
+        'last_reported_cache_creation',
         // Context window tracking
         'last_context_tokens',
         'context_window_size',
@@ -48,6 +53,10 @@ class Conversation extends Model
         'last_activity_at' => 'datetime',
         'total_input_tokens' => 'integer',
         'total_output_tokens' => 'integer',
+        'last_reported_input_tokens' => 'integer',
+        'last_reported_output_tokens' => 'integer',
+        'last_reported_cache_read' => 'integer',
+        'last_reported_cache_creation' => 'integer',
         'last_context_tokens' => 'integer',
         'context_window_size' => 'integer',
         'reasoning_config' => 'array',

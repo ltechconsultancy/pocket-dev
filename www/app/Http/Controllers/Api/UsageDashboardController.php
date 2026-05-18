@@ -52,7 +52,7 @@ class UsageDashboardController extends Controller
     {
         $days = min(max((int) $request->query('days', 14), 1), 90);
 
-        $cacheKey = "usage_summary_v2_{$days}";
+        $cacheKey = "usage_summary_v3_{$days}";
 
         $data = Cache::remember($cacheKey, 60, function () use ($days) {
             $rows = DB::table('messages as m')
@@ -74,15 +74,15 @@ class UsageDashboardController extends Controller
                 ->orderBy('date', 'desc')
                 ->get();
 
-            // Compute API equivalent cost for each row
+            // Compute API equivalent costs: with and without cache discount
             $rows = $rows->map(function ($row) {
-                $row->api_equiv_cost = $this->computeApiEquivCost(
-                    $row->model,
-                    (int) $row->input_tokens,
-                    (int) $row->output_tokens,
-                    (int) $row->cache_creation_tokens,
-                    (int) $row->cache_read_tokens
-                );
+                $in = (int) $row->input_tokens;
+                $out = (int) $row->output_tokens;
+                $cw = (int) $row->cache_creation_tokens;
+                $cr = (int) $row->cache_read_tokens;
+                $row->api_equiv_cost = $this->computeApiEquivCost($row->model, $in, $out, $cw, $cr);
+                // Full price: all input tokens at base rate (no cache discount)
+                $row->full_price_cost = $this->computeApiEquivCost($row->model, $in, $out, 0, 0);
                 return $row;
             });
 
@@ -113,6 +113,7 @@ class UsageDashboardController extends Controller
                 'cache_creation_tokens' => (int) $r->cache_creation_tokens,
                 'cache_read_tokens' => (int) $r->cache_read_tokens,
                 'api_equiv_cost' => round($r->api_equiv_cost, 4),
+                'full_price_cost' => round($r->full_price_cost, 4),
                 'conversations' => (int) $r->conversations,
             ])->values();
 
@@ -243,6 +244,7 @@ class UsageDashboardController extends Controller
             // spanning multiple days/models is not counted more than once.
             'conversations' => $convRows->pluck('conversation_id')->unique()->count(),
             'api_equiv_cost' => round((float) $rows->sum('api_equiv_cost'), 2),
+            'full_price_cost' => round((float) $rows->sum('full_price_cost'), 2),
         ];
     }
 
@@ -269,7 +271,8 @@ class UsageDashboardController extends Controller
         }
 
         // Fallback: Sonnet 4.6 rates
-        return ($inputTokens / 1_000_000) * 3.0
+        $uncached = max(0, $inputTokens - $cacheReadTokens - $cacheCreationTokens);
+        return ($uncached / 1_000_000) * 3.0
              + ($outputTokens / 1_000_000) * 15.0
              + ($cacheCreationTokens / 1_000_000) * 3.75
              + ($cacheReadTokens / 1_000_000) * 0.30;
@@ -277,7 +280,11 @@ class UsageDashboardController extends Controller
 
     private function calcFromPricing(array $p, int $in, int $out, int $cw, int $cr): float
     {
-        return ($in / 1_000_000) * $p['input']
+        // For CLI providers, input_tokens includes cache_read + cache_creation + uncached.
+        // Subtract cache portions to avoid double-counting when applying different rates.
+        $uncachedInput = max(0, $in - $cr - $cw);
+
+        return ($uncachedInput / 1_000_000) * $p['input']
              + ($out / 1_000_000) * $p['output']
              + ($cw / 1_000_000) * ($p['cacheWrite'] ?? 0)
              + ($cr / 1_000_000) * ($p['cacheRead'] ?? 0);

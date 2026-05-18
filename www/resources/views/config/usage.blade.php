@@ -20,6 +20,15 @@
                 <option value="90">90 days</option>
             </select>
 
+            {{-- Cost mode --}}
+            <button @click="cacheAwareCost = !cacheAwareCost" type="button"
+                    class="text-xs border rounded px-2 py-1.5 transition-all"
+                    :class="cacheAwareCost ? 'bg-cyan-900/30 border-cyan-600 text-cyan-300' : 'bg-gray-800 border-gray-600 text-gray-400'"
+                    :title="cacheAwareCost ? 'Showing cost with cache discount' : 'Showing full price (no cache discount)'">
+                <i class="fa-solid fa-database mr-1"></i>
+                <span x-text="cacheAwareCost ? 'Cache pricing' : 'Full price'"></span>
+            </button>
+
             {{-- Auto-refresh --}}
             <select x-model="autoRefreshValue" @change="setAutoRefresh($event.target.value)"
                     class="text-xs bg-gray-800 border border-gray-600 text-gray-300 rounded px-2 py-1.5">
@@ -61,17 +70,20 @@
             <div>
                 <span class="text-gray-500">Today</span>
                 <span class="text-gray-200 font-mono ml-1" x-text="fmt(summary?.totals?.today?.total_tokens)"></span>
-                <span class="text-emerald-400 font-mono ml-1" x-text="'$' + (summary?.totals?.today?.api_equiv_cost || 0).toFixed(2)"></span>
+                <span class="text-emerald-400 font-mono ml-1" x-text="'$' + getCost(summary?.totals?.today).toFixed(2)"></span>
+                <span x-show="cacheHitPct(summary?.totals?.today) > 0" class="text-cyan-400/70 font-mono ml-1" x-text="cacheHitPct(summary?.totals?.today) + '% cache'" x-cloak></span>
             </div>
             <div>
                 <span class="text-gray-500">7d</span>
                 <span class="text-gray-200 font-mono ml-1" x-text="fmt(summary?.totals?.week?.total_tokens)"></span>
-                <span class="text-emerald-400 font-mono ml-1" x-text="'$' + (summary?.totals?.week?.api_equiv_cost || 0).toFixed(2)"></span>
+                <span class="text-emerald-400 font-mono ml-1" x-text="'$' + getCost(summary?.totals?.week).toFixed(2)"></span>
+                <span x-show="cacheHitPct(summary?.totals?.week) > 0" class="text-cyan-400/70 font-mono ml-1" x-text="cacheHitPct(summary?.totals?.week) + '% cache'" x-cloak></span>
             </div>
             <div>
                 <span class="text-gray-500" x-text="days + 'd'"></span>
                 <span class="text-gray-200 font-mono ml-1" x-text="fmt(summary?.totals?.total?.total_tokens)"></span>
-                <span class="text-emerald-400 font-mono ml-1" x-text="'$' + (summary?.totals?.total?.api_equiv_cost || 0).toFixed(2)"></span>
+                <span class="text-emerald-400 font-mono ml-1" x-text="'$' + getCost(summary?.totals?.total).toFixed(2)"></span>
+                <span x-show="cacheHitPct(summary?.totals?.total) > 0" class="text-cyan-400/70 font-mono ml-1" x-text="cacheHitPct(summary?.totals?.total) + '% cache'" x-cloak></span>
             </div>
         </div>
     </div>
@@ -93,14 +105,18 @@
                     <div class="flex justify-between"><span class="text-gray-400">Today</span><span class="text-gray-200 font-mono" x-text="fmt(getStat(p, 'today', 'total_tokens'))"></span></div>
                     <div class="flex justify-between"><span class="text-gray-400">7 days</span><span class="text-gray-200 font-mono" x-text="fmt(getStat(p, 'week', 'total_tokens'))"></span></div>
                     <div x-show="days != 7" class="flex justify-between"><span class="text-gray-400" x-text="days + 'd'"></span><span class="text-gray-200 font-mono" x-text="fmt(getStat(p, 'total', 'total_tokens'))"></span></div>
+                    <div x-show="getProviderCacheHit(p) > 0" class="flex justify-between" x-cloak>
+                        <span class="text-gray-400">Cache hit</span>
+                        <span class="text-cyan-400/80 font-mono" x-text="getProviderCacheHit(p) + '%'"></span>
+                    </div>
                     <div class="border-t border-gray-700 pt-1.5 mt-1.5 space-y-1">
                         <div class="flex justify-between">
                             <span class="text-gray-500">~Cost today</span>
-                            <span class="text-emerald-400 font-mono" x-text="'$' + getStat(p, 'today', 'api_equiv_cost').toFixed(2)"></span>
+                            <span class="text-emerald-400 font-mono" x-text="'$' + getStat(p, 'today', costKey()).toFixed(2)"></span>
                         </div>
                         <div class="flex justify-between">
                             <span class="text-gray-500" x-text="'~Cost ' + days + 'd'"></span>
-                            <span class="text-emerald-400 font-mono" x-text="'$' + getStat(p, 'total', 'api_equiv_cost').toFixed(2)"></span>
+                            <span class="text-emerald-400 font-mono" x-text="'$' + getStat(p, 'total', costKey()).toFixed(2)"></span>
                         </div>
                     </div>
                 </div>
@@ -272,6 +288,9 @@
                         <th class="text-right py-2 px-2 cursor-pointer select-none" @click="sortBy('output')">
                             Output <i class="fa-solid fa-sort text-gray-600 ml-0.5"></i>
                         </th>
+                        <th class="text-right py-2 px-2 cursor-pointer select-none text-cyan-500/70" @click="sortBy('cacheRead')" title="Cache read tokens (cheaper input)">
+                            Cache <i class="fa-solid fa-sort text-gray-600 ml-0.5"></i>
+                        </th>
                         <th class="text-right py-2 px-2 cursor-pointer select-none" @click="sortBy('total')">
                             Total <i class="fa-solid fa-sort text-gray-600 ml-0.5"></i>
                         </th>
@@ -295,6 +314,7 @@
                             <td class="py-2 px-2 text-gray-400" x-text="providerName(row.provider)"></td>
                             <td class="text-right py-2 px-2 font-mono text-gray-300" x-text="fmt(row.input)"></td>
                             <td class="text-right py-2 px-2 font-mono text-gray-300" x-text="fmt(row.output)"></td>
+                            <td class="text-right py-2 px-2 font-mono text-cyan-400/70" x-text="row.cacheRead ? fmt(row.cacheRead) : '—'"></td>
                             <td class="text-right py-2 px-2 font-mono text-gray-200" x-text="fmt(row.total)"></td>
                             <td class="text-right py-2 px-2 font-mono text-gray-300" x-text="row.convos"></td>
                             <td class="text-right py-2 pl-2 font-mono text-emerald-400" x-text="'$' + row.cost.toFixed(2)"></td>
@@ -306,6 +326,7 @@
                         <td class="py-2 pr-3" colspan="2">Total</td>
                         <td class="text-right py-2 px-2 font-mono" x-text="fmt(modelRows.reduce((s,r) => s + r.input, 0))"></td>
                         <td class="text-right py-2 px-2 font-mono" x-text="fmt(modelRows.reduce((s,r) => s + r.output, 0))"></td>
+                        <td class="text-right py-2 px-2 font-mono text-cyan-400/70" x-text="fmt(modelRows.reduce((s,r) => s + r.cacheRead, 0))"></td>
                         <td class="text-right py-2 px-2 font-mono" x-text="fmt(modelRows.reduce((s,r) => s + r.total, 0))"></td>
                         <td class="text-right py-2 px-2 font-mono" x-text="modelRows.reduce((s,r) => s + r.convos, 0)"></td>
                         <td class="text-right py-2 pl-2 font-mono text-emerald-400" x-text="'$' + modelRows.reduce((s,r) => s + r.cost, 0).toFixed(2)"></td>
@@ -349,6 +370,7 @@ function usageDashboard() {
         days: 14,
         filterProvider: null,
         filterModel: null,
+        cacheAwareCost: true, // true = with cache discount, false = full price
 
         // Auto-refresh ('0' = off, '15'/'30'/'60'/'120'/'300' = seconds)
         autoRefreshValue: '30',
@@ -373,6 +395,8 @@ function usageDashboard() {
         init() {
             this.refresh();
             this.startTimer();
+            // Re-render chart when cost mode changes
+            this.$watch('cacheAwareCost', () => this.renderChart());
         },
 
         destroy() {
@@ -451,7 +475,7 @@ function usageDashboard() {
             } finally {
                 this.loading = false;
                 this._refreshInFlight = false;
-                this.$nextTick(() => this.renderChart());
+                this.$nextTick(() => requestAnimationFrame(() => this.renderChart()));
             }
         },
 
@@ -488,9 +512,11 @@ function usageDashboard() {
                     provider: data.provider,
                     input: p.input_tokens,
                     output: p.output_tokens,
+                    cacheRead: p.cache_read_tokens || 0,
+                    cacheCreation: p.cache_creation_tokens || 0,
                     total: p.total_tokens,
                     convos: p.conversations,
-                    cost: p.api_equiv_cost,
+                    cost: this.cacheAwareCost ? p.api_equiv_cost : p.full_price_cost,
                 });
             }
 
@@ -518,9 +544,20 @@ function usageDashboard() {
         // Chart
         // ============================================================
 
+        _chartRetries: 0,
+
         renderChart() {
             const canvas = this.$refs.chart;
             if (!canvas || !this.summary?.by_day) return;
+            // Chart.js CDN may still be loading, or canvas not yet laid out
+            if (typeof Chart === 'undefined' || canvas.clientWidth === 0) {
+                if (this._chartRetries < 15) {
+                    this._chartRetries++;
+                    setTimeout(() => this.renderChart(), 200);
+                }
+                return;
+            }
+            this._chartRetries = 0;
             if (this.chart) this.chart.destroy();
 
             const data = this.summary.by_day;
@@ -551,7 +588,10 @@ function usageDashboard() {
                 data: dates.map(d => {
                     const matchField = this.chartGroupBy === 'model' ? 'model' : 'provider_type';
                     const rows = data.filter(r => r.date === d && r[matchField] === g);
-                    if (isCost) return rows.reduce((s, r) => s + (Number(r.api_equiv_cost) || 0), 0);
+                    if (isCost) {
+                        const key = self.cacheAwareCost ? 'api_equiv_cost' : 'full_price_cost';
+                        return rows.reduce((s, r) => s + (Number(r[key]) || 0), 0);
+                    }
                     return rows.reduce((s, r) => s + Number(r.input_tokens) + Number(r.output_tokens), 0);
                 }),
                 backgroundColor: palette[i % palette.length].bg,
@@ -626,6 +666,31 @@ function usageDashboard() {
 
         getStat(provider, period, key) {
             return this.summary?.by_provider?.[provider]?.[period]?.[key] || 0;
+        },
+
+        costKey() {
+            return this.cacheAwareCost ? 'api_equiv_cost' : 'full_price_cost';
+        },
+
+        getCost(stats) {
+            if (!stats) return 0;
+            return this.cacheAwareCost ? (stats.api_equiv_cost || 0) : (stats.full_price_cost || 0);
+        },
+
+        cacheHitPct(stats) {
+            if (!stats) return 0;
+            // input_tokens includes cache_read + cache_creation + uncached (pre-delta).
+            // After delta conversion individual messages may have cache > input,
+            // but aggregated sums are reliable. Clamp to 100%.
+            const input = stats.input_tokens || 0;
+            const cacheRead = stats.cache_read_tokens || 0;
+            if (input === 0) return 0;
+            return Math.min(100, Math.round((cacheRead / input) * 100));
+        },
+
+        getProviderCacheHit(provider) {
+            const stats = this.summary?.by_provider?.[provider]?.total;
+            return this.cacheHitPct(stats);
         },
     };
 }

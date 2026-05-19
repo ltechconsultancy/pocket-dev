@@ -36,6 +36,12 @@ class SubAgentCancelCommand extends Command
 
     private function outputJson(array $data): void
     {
-        $this->output->writeln(json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+        if ($json === false) {
+            throw new \RuntimeException('Failed to encode sub-agent output as JSON: ' . json_last_error_msg());
+        }
+
+        $this->output->writeln($json);
     }
 }

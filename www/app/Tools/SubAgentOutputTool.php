@@ -82,6 +82,14 @@ API;
             return ToolResult::error("Sub-agent task '{$taskId}' not found.");
         }
 
+        if (!$context->conversationUuid) {
+            return ToolResult::error('Cannot verify task ownership without a conversation context.');
+        }
+
+        if ($task->parent_conversation_uuid !== $context->conversationUuid) {
+            return ToolResult::error("Task '{$taskId}' was not spawned by this conversation.");
+        }
+
         $status = $task->getStatus();
 
         $result = [

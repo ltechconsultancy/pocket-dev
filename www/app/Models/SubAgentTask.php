@@ -112,7 +112,7 @@ class SubAgentTask extends Model
             $content = $errorMessage->content;
             if (is_array($content)) {
                 foreach ($content as $block) {
-                    if (is_array($block) && ($block['type'] ?? '') === 'text') {
+                    if (is_array($block) && ($block['type'] ?? '') === 'text' && array_key_exists('text', $block)) {
                         return $block['text'];
                     }
                 }

@@ -32,6 +32,16 @@ return new class extends Migration
                 ->references('uuid')
                 ->on('conversations')
                 ->cascadeOnDelete();
+
+            $table->foreign('parent_conversation_uuid')
+                ->references('uuid')
+                ->on('conversations')
+                ->nullOnDelete();
+
+            $table->foreign('agent_id')
+                ->references('id')
+                ->on('agents')
+                ->cascadeOnDelete();
         });
     }
 

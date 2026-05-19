@@ -64,6 +64,8 @@ class ToolResult
         return [
             'output' => $this->output,
             'is_error' => $this->isError,
+            'end_turn' => $this->endTurn,
+            'end_turn_message' => $this->endTurnMessage,
         ];
     }
 }

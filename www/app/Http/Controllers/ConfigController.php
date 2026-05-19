@@ -346,6 +346,17 @@ class ConfigController extends Controller
     {
         $request->session()->put('config_last_section', 'agents');
 
+        $selectedWorkspaceId = $request->query('workspace_id');
+
+        $exposedAgents = collect();
+        if ($selectedWorkspaceId) {
+            $exposedAgents = Agent::where('workspace_id', $selectedWorkspaceId)
+                ->where('enabled', true)
+                ->where('expose_as_tool', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'slug']);
+        }
+
         $viewData = [
             'providers' => Agent::getProviders(),
             'modelsPerProvider' => collect(Agent::getProviders())
@@ -355,9 +366,10 @@ class ConfigController extends Controller
                 ->mapWithKeys(fn ($p) => [$p => $this->getMaxContextPerProvider($p)])
                 ->toArray(),
             'workspaces' => Workspace::orderBy('name')->get(),
-            'selectedWorkspaceId' => $request->query('workspace_id'),
+            'selectedWorkspaceId' => $selectedWorkspaceId,
             'sourceAgent' => null,
             'cloneWarnings' => null,
+            'exposedAgents' => $exposedAgents,
         ];
 
         // Handle "Create from" (cloning an existing agent)
@@ -505,7 +517,9 @@ class ConfigController extends Controller
                     'extended_context' => ($validated['extended_context'] ?? '1') === '1',
                     'expose_as_tool' => $validated['expose_as_tool'] ?? false,
                     'can_call_subagents' => (bool) ($validated['can_call_subagents'] ?? true),
-                    'allowed_subagents' => !empty($validated['allowed_subagents']) ? $validated['allowed_subagents'] : null,
+                    'allowed_subagents' => ((bool) ($validated['can_call_subagents'] ?? true) && !empty($validated['allowed_subagents']))
+                        ? $validated['allowed_subagents']
+                        : null,
                 ]);
 
                 // Sync memory schemas (only if not inheriting)
@@ -642,7 +656,9 @@ class ConfigController extends Controller
                     'extended_context' => ($validated['extended_context'] ?? '1') === '1',
                     'expose_as_tool' => $validated['expose_as_tool'] ?? false,
                     'can_call_subagents' => (bool) ($validated['can_call_subagents'] ?? true),
-                    'allowed_subagents' => !empty($validated['allowed_subagents']) ? $validated['allowed_subagents'] : null,
+                    'allowed_subagents' => ((bool) ($validated['can_call_subagents'] ?? true) && !empty($validated['allowed_subagents']))
+                        ? $validated['allowed_subagents']
+                        : null,
                 ]);
 
                 // Sync memory schemas (only if not inheriting)

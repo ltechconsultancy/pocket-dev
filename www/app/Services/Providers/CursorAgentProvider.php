@@ -152,14 +152,14 @@ class CursorAgentProvider extends AbstractCliProvider
         $modelConfig = $this->getModelConfig($baseModel);
         $resolvedModel = $this->resolveModelId($baseModel, $effort, $thinking, $modelConfig);
 
+        // Ensure ~/.cursor directories are writable BEFORE syncing MCP config
+        // (syncMcpServersFromClaudeCode may create ~/.cursor with wrong permissions)
+        $home = getenv('HOME') ?: '/home/appuser';
+        $this->ensureCursorDirectories($home);
+
         // Sync MCP servers from Claude Code config to Cursor config
         $workingDir = $conversation->working_directory ?? '/workspace';
         $this->syncMcpServersFromClaudeCode($workingDir);
-
-        // Ensure ~/.cursor directories are writable by www-data (queue worker)
-        // The agent CLI creates project-specific state dirs under ~/.cursor/projects/
-        $home = getenv('HOME') ?: '/home/appuser';
-        $this->ensureCursorDirectories($home);
 
         // Use absolute path because the queue worker's PATH may not include ~/.local/bin
         $agentBin = $home . '/.local/bin/agent';
@@ -380,16 +380,19 @@ class CursorAgentProvider extends AbstractCliProvider
         // If model doesn't support thinking, ignore the toggle
         $useThinking = $thinking && $hasThinking;
 
+        // Build effort suffix (empty string → no suffix to avoid trailing hyphens)
+        $effortSuffix = ($mappedEffort !== '') ? '-' . $mappedEffort : '';
+
         return match ($type) {
             // Opus 4.7 pattern: {base}-thinking-{level} or {base}-{level}
             'prefix_thinking' => $useThinking
-                ? $baseModel . '-thinking-' . $mappedEffort
-                : $baseModel . '-' . $mappedEffort,
+                ? $baseModel . '-thinking' . $effortSuffix
+                : $baseModel . $effortSuffix,
 
             // Opus 4.6 pattern: {base}-{level}-thinking or {base}-{level}
             'suffix_thinking' => $useThinking
-                ? $baseModel . '-' . $mappedEffort . '-thinking'
-                : $baseModel . '-' . $mappedEffort,
+                ? $baseModel . $effortSuffix . '-thinking'
+                : $baseModel . $effortSuffix,
 
             // Sonnet 4.5/4 pattern: {base}-thinking or {base}
             'toggle_thinking' => $useThinking
@@ -397,9 +400,7 @@ class CursorAgentProvider extends AbstractCliProvider
                 : $baseModel,
 
             // GPT pattern: {base}-{level} (no thinking toggle)
-            'suffix' => $mappedEffort === ''
-                ? $baseModel
-                : $baseModel . '-' . $mappedEffort,
+            'suffix' => $baseModel . $effortSuffix,
 
             default => $baseModel,
         };

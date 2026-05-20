@@ -239,7 +239,7 @@
                     x-data="{
                         exposeAsTool: {{ old('expose_as_tool', ($agent->expose_as_tool ?? ($sourceAgent->expose_as_tool ?? false)) ? 'true' : 'false') }},
                         canCallSubagents: {{ old('can_call_subagents', ($agent->can_call_subagents ?? ($sourceAgent->can_call_subagents ?? true)) ? 'true' : 'false') }},
-                        allowedSubagents: @js(old('allowed_subagents', $agent->allowed_subagents ?? [])),
+                        allowedSubagents: @js(old('allowed_subagents', $agent->allowed_subagents ?? ($sourceAgent->allowed_subagents ?? []))),
                     }"
                     class="space-y-4 pt-2 border-t border-gray-700/50"
                 >
@@ -295,7 +295,7 @@
                                         type="checkbox"
                                         name="allowed_subagents[]"
                                         value="{{ $exposedAgent->id }}"
-                                        {{ in_array($exposedAgent->id, old('allowed_subagents', $agent->allowed_subagents ?? [])) ? 'checked' : '' }}
+                                        {{ in_array($exposedAgent->id, old('allowed_subagents', $agent->allowed_subagents ?? ($sourceAgent->allowed_subagents ?? []))) ? 'checked' : '' }}
                                         class="w-3.5 h-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
                                     >
                                     <span class="text-gray-300">{{ $exposedAgent->name }}</span>
@@ -414,6 +414,7 @@
                             class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         >
                             @php $currentCursorEffort = old('cursor_agent_reasoning_effort', ($agent->reasoning_config['effort'] ?? null) ?? ($sourceAgent->reasoning_config['effort'] ?? 'high')); @endphp
+                            <option value="none" {{ $currentCursorEffort === 'none' ? 'selected' : '' }}>None</option>
                             <option value="low" {{ $currentCursorEffort === 'low' ? 'selected' : '' }}>Low</option>
                             <option value="medium" {{ $currentCursorEffort === 'medium' ? 'selected' : '' }}>Medium</option>
                             <option value="high" {{ $currentCursorEffort === 'high' ? 'selected' : '' }}>High</option>

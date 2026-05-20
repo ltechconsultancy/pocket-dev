@@ -466,15 +466,21 @@ return [
 
         // Cursor Agent models (via CLI)
         // Pricing is null since Cursor Agent uses subscription credits.
-        // Models are stored as BASE models; the provider resolves effort level into
-        // the final model ID at runtime (e.g. "claude-opus-4-7" + effort "high" → "claude-opus-4-7-thinking-high").
         //
-        // effort_variants defines how to construct the final model ID:
-        //   type: 'prefix_thinking' → {base}-thinking-{level}  (opus 4.7 pattern)
-        //   type: 'suffix_thinking' → {base}-{level}-thinking  (opus 4.6/4.5 pattern)
-        //   type: 'toggle_thinking' → {base}-thinking           (sonnet 4.5/4 pattern, thinking on/off only)
-        //   type: 'suffix'          → {base}-{level}            (GPT pattern)
-        //   null                    → no effort control          (auto, grok, etc.)
+        // Thinking and effort are TWO INDEPENDENT axes:
+        //   thinking: boolean (on/off) — only available for Claude models
+        //   effort:   string level     — controls reasoning depth / compute budget
+        //
+        // The provider resolves base model + thinking + effort into the final model ID.
+        // effort_variants defines how to construct it:
+        //   type: 'prefix_thinking' → thinking ON:  {base}-thinking-{level}
+        //                             thinking OFF: {base}-{level}
+        //   type: 'suffix_thinking' → thinking ON:  {base}-{level}-thinking
+        //                             thinking OFF: {base}-{level}
+        //   type: 'toggle_thinking' → thinking ON:  {base}-thinking
+        //                             thinking OFF: {base}
+        //   type: 'suffix'          → {base}-{level} (no thinking toggle, GPT models)
+        //   null                    → no effort or thinking control (auto, grok, etc.)
         //
         // Source: `agent models` command output
         'cursor_agent' => [
@@ -492,17 +498,15 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // Claude Opus 4.7 — full effort range with thinking variants
-            // Thinking: claude-opus-4-7-thinking-{low|medium|high|xhigh|max}
-            // Non-thinking: claude-opus-4-7-{low|medium|high|xhigh|max}
+            // Claude Opus 4.7 — independent thinking + effort (5 levels)
             [
                 'model_id'                      => 'claude-opus-4-7',
                 'display_name'                  => 'Claude Opus 4.7',
                 'effort_variants'               => [
                     'type' => 'prefix_thinking',
+                    'has_thinking' => true,
                     'levels' => ['low', 'medium', 'high', 'xhigh', 'max'],
                     'default' => 'high',
-                    'non_thinking_default' => 'xhigh',
                 ],
                 'context_window'                => 200000,
                 'max_context_window'            => 200000,
@@ -513,14 +517,13 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // Claude 4.6 Opus — high/max with thinking suffix
-            // Thinking: claude-4.6-opus-{high|max}-thinking
-            // Non-thinking: claude-4.6-opus-{high|max}
+            // Claude 4.6 Opus — independent thinking + effort (2 levels)
             [
                 'model_id'                      => 'claude-4.6-opus',
                 'display_name'                  => 'Claude Opus 4.6',
                 'effort_variants'               => [
                     'type' => 'suffix_thinking',
+                    'has_thinking' => true,
                     'levels' => ['high', 'max'],
                     'default' => 'high',
                 ],
@@ -533,14 +536,13 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // Claude 4.6 Sonnet — medium only, thinking toggle
-            // Thinking: claude-4.6-sonnet-medium-thinking
-            // Non-thinking: claude-4.6-sonnet-medium
+            // Claude 4.6 Sonnet — thinking toggle, single effort level
             [
                 'model_id'                      => 'claude-4.6-sonnet',
                 'display_name'                  => 'Claude Sonnet 4.6',
                 'effort_variants'               => [
                     'type' => 'suffix_thinking',
+                    'has_thinking' => true,
                     'levels' => ['medium'],
                     'default' => 'medium',
                 ],
@@ -553,12 +555,13 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // Claude 4.5 Sonnet — thinking on/off only
+            // Claude 4.5 Sonnet — thinking toggle only (no effort levels)
             [
                 'model_id'                      => 'claude-4.5-sonnet',
                 'display_name'                  => 'Claude Sonnet 4.5',
                 'effort_variants'               => [
                     'type' => 'toggle_thinking',
+                    'has_thinking' => true,
                 ],
                 'context_window'                => 200000,
                 'max_context_window'            => 200000,
@@ -569,13 +572,13 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // GPT-5.5 — full effort range
-            // gpt-5.5-{none|low|medium|high|extra-high}
+            // GPT-5.5 — effort only, no thinking toggle
             [
                 'model_id'                      => 'gpt-5.5',
                 'display_name'                  => 'GPT-5.5',
                 'effort_variants'               => [
                     'type' => 'suffix',
+                    'has_thinking' => false,
                     'levels' => ['none', 'low', 'medium', 'high', 'extra-high'],
                     'default' => 'medium',
                     'level_map' => ['xhigh' => 'extra-high'],
@@ -589,12 +592,13 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // GPT-5.4 — low/medium/high/xhigh
+            // GPT-5.4 — effort only
             [
                 'model_id'                      => 'gpt-5.4',
                 'display_name'                  => 'GPT-5.4',
                 'effort_variants'               => [
                     'type' => 'suffix',
+                    'has_thinking' => false,
                     'levels' => ['low', 'medium', 'high', 'xhigh'],
                     'default' => 'medium',
                 ],
@@ -607,12 +611,13 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // GPT-5.3 Codex — low/default/high/xhigh
+            // GPT-5.3 Codex — effort only
             [
                 'model_id'                      => 'gpt-5.3-codex',
                 'display_name'                  => 'GPT-5.3 Codex',
                 'effort_variants'               => [
                     'type' => 'suffix',
+                    'has_thinking' => false,
                     'levels' => ['low', 'medium', 'high', 'xhigh'],
                     'default' => 'medium',
                     'level_map' => ['medium' => ''],
@@ -626,12 +631,13 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // GPT-5.2 — low/medium/high/xhigh
+            // GPT-5.2 — effort only
             [
                 'model_id'                      => 'gpt-5.2',
                 'display_name'                  => 'GPT-5.2',
                 'effort_variants'               => [
                     'type' => 'suffix',
+                    'has_thinking' => false,
                     'levels' => ['low', 'medium', 'high', 'xhigh'],
                     'default' => 'medium',
                     'level_map' => ['medium' => ''],
@@ -645,7 +651,7 @@ return [
                 'cache_read_price_per_million'  => null,
             ],
 
-            // Other providers (no effort control)
+            // Other providers (no effort or thinking control)
             [
                 'model_id'                      => 'grok-4.3',
                 'display_name'                  => 'Grok 4.3',

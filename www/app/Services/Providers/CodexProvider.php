@@ -403,8 +403,8 @@ class CodexProvider extends AbstractCliProvider
                     }
 
                     $toolId = $item['id'] ?? 'ws_' . $state['blockIndex'];
-                    $state['webSearchToolId'] = $toolId;
                     yield StreamEvent::toolUseStart($state['blockIndex'], $toolId, 'WebSearch');
+                    yield StreamEvent::toolUseDelta($state['blockIndex'], json_encode(['query' => 'Searching...']));
                     $state['toolUseStarted'] = true;
                 }
                 break;
@@ -466,7 +466,7 @@ class CodexProvider extends AbstractCliProvider
                     $state['blockIndex']++;
                 } elseif ($itemType === 'web_search') {
                     // Web search completed with query and results
-                    $toolId = $item['id'] ?? ($state['webSearchToolId'] ?? 'ws_' . $state['blockIndex']);
+                    $toolId = $item['id'] ?? 'ws_' . $state['blockIndex'];
                     $query = $item['query'] ?? '';
                     $action = $item['action'] ?? [];
                     $queries = $action['queries'] ?? [$query];
@@ -486,15 +486,14 @@ class CodexProvider extends AbstractCliProvider
                         yield StreamEvent::toolUseStart($state['blockIndex'], $toolId, 'WebSearch');
                     }
 
+                    // Update the tool input with the actual query
+                    yield StreamEvent::toolUseDelta($state['blockIndex'], json_encode([
+                        'query' => $query,
+                        'queries' => $queries,
+                    ]));
                     yield StreamEvent::toolUseStop($state['blockIndex']);
                     $state['toolUseStarted'] = false;
-
-                    // Put query info in the tool result (toolUseDelta gets cleared by toolUseStop)
-                    $resultText = 'Searched: ' . $query;
-                    if (count($queries) > 1) {
-                        $resultText .= "\nQueries: " . implode(', ', $queries);
-                    }
-                    yield StreamEvent::toolResult($toolId, $resultText, false);
+                    yield StreamEvent::toolResult($toolId, 'Web search completed: ' . $query, false);
                     $state['blockIndex']++;
                 }
                 break;

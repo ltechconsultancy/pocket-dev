@@ -154,6 +154,16 @@ class SubAgentRunner
             return ToolResult::error("Conversation '{$conversationId}' not found, not accessible, or belongs to a different agent.");
         }
 
+        // Verify the conversation was originally spawned by this parent
+        $isOwnedByParent = SubAgentTask::where('parent_conversation_uuid', $context->conversationUuid)
+            ->where('child_conversation_uuid', $conversation->uuid)
+            ->where('agent_id', $agent->id)
+            ->exists();
+
+        if (!$isOwnedByParent) {
+            return ToolResult::error("Conversation '{$conversationId}' was not spawned by this conversation.");
+        }
+
         if ($conversation->status === Conversation::STATUS_PROCESSING) {
             return ToolResult::error("Conversation '{$conversationId}' is still running. Wait for it to complete before resuming.");
         }

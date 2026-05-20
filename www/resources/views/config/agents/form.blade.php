@@ -239,7 +239,7 @@
                     x-data="{
                         exposeAsTool: {{ old('expose_as_tool', ($agent->expose_as_tool ?? ($sourceAgent->expose_as_tool ?? false)) ? 'true' : 'false') }},
                         canCallSubagents: {{ old('can_call_subagents', ($agent->can_call_subagents ?? ($sourceAgent->can_call_subagents ?? true)) ? 'true' : 'false') }},
-                        allowedSubagents: @js(old('allowed_subagents', $agent->allowed_subagents ?? [])),
+                        allowedSubagents: @js(old('allowed_subagents', $agent->allowed_subagents ?? ($sourceAgent->allowed_subagents ?? []))),
                     }"
                     class="space-y-4 pt-2 border-t border-gray-700/50"
                 >
@@ -295,7 +295,7 @@
                                         type="checkbox"
                                         name="allowed_subagents[]"
                                         value="{{ $exposedAgent->id }}"
-                                        {{ in_array($exposedAgent->id, old('allowed_subagents', $agent->allowed_subagents ?? [])) ? 'checked' : '' }}
+                                        {{ in_array($exposedAgent->id, old('allowed_subagents', $agent->allowed_subagents ?? ($sourceAgent->allowed_subagents ?? []))) ? 'checked' : '' }}
                                         class="w-3.5 h-3.5 rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500"
                                     >
                                     <span class="text-gray-300">{{ $exposedAgent->name }}</span>
@@ -384,22 +384,45 @@
                 </div>
 
                 <!-- Cursor Agent Reasoning Effort -->
-                <div x-show="provider === 'cursor_agent'" x-cloak>
-                    <label for="cursor_agent_reasoning_effort" class="block text-sm font-medium mb-2">Reasoning Effort</label>
-                    <select
-                        id="cursor_agent_reasoning_effort"
-                        name="cursor_agent_reasoning_effort"
-                        class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                        @php $currentCursorEffort = old('cursor_agent_reasoning_effort', ($agent->reasoning_config['effort'] ?? null) ?? ($sourceAgent->reasoning_config['effort'] ?? 'high')); @endphp
-                        <option value="none" {{ $currentCursorEffort === 'none' ? 'selected' : '' }}>None (no thinking)</option>
-                        <option value="low" {{ $currentCursorEffort === 'low' ? 'selected' : '' }}>Low</option>
-                        <option value="medium" {{ $currentCursorEffort === 'medium' ? 'selected' : '' }}>Medium</option>
-                        <option value="high" {{ $currentCursorEffort === 'high' ? 'selected' : '' }}>High</option>
-                        <option value="xhigh" {{ $currentCursorEffort === 'xhigh' ? 'selected' : '' }}>Extra High</option>
-                        <option value="max" {{ $currentCursorEffort === 'max' ? 'selected' : '' }}>Maximum</option>
-                    </select>
-                    <p class="text-xs text-gray-400 mt-1">Controls reasoning depth (encoded in model name sent to CLI)</p>
+                <!-- Cursor Agent: Thinking toggle + Effort dropdown (independent axes) -->
+                <div x-show="provider === 'cursor_agent'" x-cloak class="space-y-3">
+                    <!-- Thinking toggle (Claude models only) -->
+                    @php $cursorThinking = old('cursor_agent_thinking', ($agent->reasoning_config['thinking'] ?? null) ?? ($sourceAgent->reasoning_config['thinking'] ?? true)); @endphp
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input
+                            type="hidden"
+                            name="cursor_agent_thinking"
+                            value="0"
+                        >
+                        <input
+                            type="checkbox"
+                            name="cursor_agent_thinking"
+                            value="1"
+                            {{ $cursorThinking ? 'checked' : '' }}
+                            class="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                        >
+                        <span class="text-sm font-medium">Extended Thinking</span>
+                        <span class="text-xs text-gray-400">(Claude models only)</span>
+                    </label>
+
+                    <!-- Effort level -->
+                    <div>
+                        <label for="cursor_agent_reasoning_effort" class="block text-sm font-medium mb-2">Reasoning Effort</label>
+                        <select
+                            id="cursor_agent_reasoning_effort"
+                            name="cursor_agent_reasoning_effort"
+                            class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                            @php $currentCursorEffort = old('cursor_agent_reasoning_effort', ($agent->reasoning_config['effort'] ?? null) ?? ($sourceAgent->reasoning_config['effort'] ?? 'high')); @endphp
+                            <option value="none" {{ $currentCursorEffort === 'none' ? 'selected' : '' }}>None</option>
+                            <option value="low" {{ $currentCursorEffort === 'low' ? 'selected' : '' }}>Low</option>
+                            <option value="medium" {{ $currentCursorEffort === 'medium' ? 'selected' : '' }}>Medium</option>
+                            <option value="high" {{ $currentCursorEffort === 'high' ? 'selected' : '' }}>High</option>
+                            <option value="xhigh" {{ $currentCursorEffort === 'xhigh' ? 'selected' : '' }}>Extra High</option>
+                            <option value="max" {{ $currentCursorEffort === 'max' ? 'selected' : '' }}>Maximum</option>
+                        </select>
+                        <p class="text-xs text-gray-400 mt-1">Controls reasoning depth and compute budget</p>
+                    </div>
                 </div>
 
                 <!-- Response Level -->

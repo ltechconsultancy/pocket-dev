@@ -143,21 +143,23 @@ class CursorAgentProvider extends AbstractCliProvider
     ): string {
         $baseModel = $conversation->model ?? config('ai.providers.cursor_agent.default_model', 'auto');
 
-        // Resolve base model + effort level into the final model ID
-        // E.g. "claude-opus-4-7" + effort "high" → "claude-opus-4-7-thinking-high"
+        // Resolve base model + thinking + effort into the final model ID
+        // E.g. "claude-opus-4-7" + thinking=true + effort "high" → "claude-opus-4-7-thinking-high"
+        // E.g. "claude-opus-4-7" + thinking=false + effort "max" → "claude-opus-4-7-max"
         $reasoningConfig = $conversation->getReasoningConfig();
         $effort = $reasoningConfig['effort'] ?? 'high';
+        $thinking = $reasoningConfig['thinking'] ?? true;
         $modelConfig = $this->getModelConfig($baseModel);
-        $resolvedModel = $this->resolveModelId($baseModel, $effort, $modelConfig);
+        $resolvedModel = $this->resolveModelId($baseModel, $effort, $thinking, $modelConfig);
+
+        // Ensure ~/.cursor directories are writable BEFORE syncing MCP config
+        // (syncMcpServersFromClaudeCode may create ~/.cursor with wrong permissions)
+        $home = getenv('HOME') ?: '/home/appuser';
+        $this->ensureCursorDirectories($home);
 
         // Sync MCP servers from Claude Code config to Cursor config
         $workingDir = $conversation->working_directory ?? '/workspace';
         $this->syncMcpServersFromClaudeCode($workingDir);
-
-        // Ensure ~/.cursor directories are writable by www-data (queue worker)
-        // The agent CLI creates project-specific state dirs under ~/.cursor/projects/
-        $home = getenv('HOME') ?: '/home/appuser';
-        $this->ensureCursorDirectories($home);
 
         // Use absolute path because the queue worker's PATH may not include ~/.local/bin
         $agentBin = $home . '/.local/bin/agent';
@@ -339,19 +341,19 @@ class CursorAgentProvider extends AbstractCliProvider
     }
 
     /**
-     * Resolve a base model + effort level into the actual model ID for the CLI.
+     * Resolve a base model + thinking toggle + effort level into the actual CLI model ID.
      *
-     * Cursor Agent bakes effort/thinking into the model name. This method maps:
-     *   prefix_thinking: claude-opus-4-7 + high   → claude-opus-4-7-thinking-high
-     *   prefix_thinking: claude-opus-4-7 + none   → claude-opus-4-7-xhigh (non-thinking)
-     *   suffix_thinking: claude-4.6-opus + high   → claude-4.6-opus-high-thinking
-     *   suffix_thinking: claude-4.6-opus + none   → claude-4.6-opus-high (no thinking suffix)
-     *   toggle_thinking: claude-4.5-sonnet + high → claude-4.5-sonnet-thinking
-     *   toggle_thinking: claude-4.5-sonnet + none → claude-4.5-sonnet
-     *   suffix:          gpt-5.5 + medium         → gpt-5.5-medium
-     *   null:            auto                     → auto
+     * Thinking and effort are TWO INDEPENDENT axes:
+     *   prefix_thinking: claude-opus-4-7 + thinking + high → claude-opus-4-7-thinking-high
+     *                    claude-opus-4-7 + !thinking + max → claude-opus-4-7-max
+     *   suffix_thinking: claude-4.6-opus + thinking + high → claude-4.6-opus-high-thinking
+     *                    claude-4.6-opus + !thinking + high → claude-4.6-opus-high
+     *   toggle_thinking: claude-4.5-sonnet + thinking      → claude-4.5-sonnet-thinking
+     *                    claude-4.5-sonnet + !thinking     → claude-4.5-sonnet
+     *   suffix:          gpt-5.5 + medium                 → gpt-5.5-medium
+     *   null:            auto                             → auto
      */
-    private function resolveModelId(string $baseModel, string $effort, array $modelConfig): string
+    private function resolveModelId(string $baseModel, string $effort, bool $thinking, array $modelConfig): string
     {
         $variants = $modelConfig['effort_variants'] ?? null;
 
@@ -361,51 +363,44 @@ class CursorAgentProvider extends AbstractCliProvider
         }
 
         $type = $variants['type'] ?? 'suffix';
+        $hasThinking = $variants['has_thinking'] ?? false;
         $availableLevels = $variants['levels'] ?? [];
         $default = $variants['default'] ?? ($availableLevels[0] ?? 'medium');
 
         // Map effort names that differ between our UI and Cursor's model names
-        // E.g. our "xhigh" → Cursor's "extra-high" for GPT-5.5
         $levelMap = $variants['level_map'] ?? [];
+
+        // Validate effort is available; fall back to default
+        if (!empty($availableLevels) && !in_array($effort, $availableLevels) && !isset($levelMap[$effort])) {
+            $effort = $default;
+        }
+
         $mappedEffort = $levelMap[$effort] ?? $effort;
 
-        // For suffix-only models (GPT), 'none' means use the lowest available level
-        // since these models don't have a separate non-thinking variant
-        if ($effort === 'none' && $type === 'suffix') {
-            if (in_array('none', $availableLevels)) {
-                $mappedEffort = $levelMap['none'] ?? 'none';
-            } else {
-                $effort = $availableLevels[0] ?? $default;
-                $mappedEffort = $levelMap[$effort] ?? $effort;
-            }
-        }
+        // If model doesn't support thinking, ignore the toggle
+        $useThinking = $thinking && $hasThinking;
 
-        // Validate effort is available for this model; fall back to default
-        if ($effort !== 'none' && !in_array($effort, $availableLevels) && !isset($levelMap[$effort])) {
-            $effort = $default;
-            $mappedEffort = $levelMap[$effort] ?? $effort;
-        }
+        // Build effort suffix (empty string → no suffix to avoid trailing hyphens)
+        $effortSuffix = ($mappedEffort !== '') ? '-' . $mappedEffort : '';
 
         return match ($type) {
             // Opus 4.7 pattern: {base}-thinking-{level} or {base}-{level}
-            'prefix_thinking' => $effort === 'none'
-                ? $baseModel . '-' . ($variants['non_thinking_default'] ?? $default)
-                : $baseModel . '-thinking-' . $mappedEffort,
+            'prefix_thinking' => $useThinking
+                ? $baseModel . '-thinking' . $effortSuffix
+                : $baseModel . $effortSuffix,
 
-            // Opus 4.6/4.5 pattern: {base}-{level}-thinking or {base}-{level}
-            'suffix_thinking' => $effort === 'none'
-                ? $baseModel . '-' . $default
-                : $baseModel . '-' . $mappedEffort . '-thinking',
+            // Opus 4.6 pattern: {base}-{level}-thinking or {base}-{level}
+            'suffix_thinking' => $useThinking
+                ? $baseModel . $effortSuffix . '-thinking'
+                : $baseModel . $effortSuffix,
 
-            // Sonnet 4.5/4 pattern: {base}-thinking or {base} (on/off only)
-            'toggle_thinking' => $effort === 'none'
-                ? $baseModel
-                : $baseModel . '-thinking',
+            // Sonnet 4.5/4 pattern: {base}-thinking or {base}
+            'toggle_thinking' => $useThinking
+                ? $baseModel . '-thinking'
+                : $baseModel,
 
-            // GPT pattern: {base}-{level}
-            'suffix' => $mappedEffort === ''
-                ? $baseModel                            // level_map maps to '' (base model is default)
-                : $baseModel . '-' . $mappedEffort,
+            // GPT pattern: {base}-{level} (no thinking toggle)
+            'suffix' => $baseModel . $effortSuffix,
 
             default => $baseModel,
         };
@@ -555,7 +550,6 @@ class CursorAgentProvider extends AbstractCliProvider
             // Format: {"tool_call": {"shellToolCall": {..., "description": "..."}, ...}}
             $toolCall = $data['tool_call'] ?? [];
             $toolName = 'unknown';
-            $description = '';
             $inputJson = '{}';
 
             foreach ($toolCall as $key => $value) {
@@ -563,7 +557,6 @@ class CursorAgentProvider extends AbstractCliProvider
                     // Convert camelCase key to readable name (e.g., shellToolCall -> shell)
                     $toolName = str_replace('ToolCall', '', $key);
                     $toolName = str_replace('toolCall', '', $toolName) ?: $key;
-                    $description = $value['description'] ?? '';
 
                     // Extract relevant args for display
                     $args = $value['args'] ?? $value;

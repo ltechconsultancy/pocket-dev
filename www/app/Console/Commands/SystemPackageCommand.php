@@ -420,14 +420,14 @@ class SystemPackageCommand extends Command
                 $lastError = "Install failed in {$container}: " . implode(' ', $errorLines);
                 Log::warning("Hot-install: {$lastError}", ['output' => $output]);
 
-                if ($container === 'pocket-dev-queue') {
+                if ($container === $projectName . '-queue') {
                     // Queue container is critical — if it fails, the package won't work
                     break;
                 }
                 continue;
             }
 
-            if ($container === 'pocket-dev-queue') {
+            if ($container === $projectName . '-queue') {
                 $queueSuccess = true;
             }
 

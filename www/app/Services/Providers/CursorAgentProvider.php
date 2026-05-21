@@ -111,6 +111,27 @@ class CursorAgentProvider extends AbstractCliProvider
     // Template method implementations
     // ========================================================================
 
+    /**
+     * Override getModels to use dynamic CLI discovery instead of static config.
+     * Falls back to static config if CLI is unavailable.
+     */
+    public function getModels(): array
+    {
+        $dynamic = self::discoverModels();
+        if (!empty($dynamic)) {
+            return collect($dynamic)
+                ->mapWithKeys(fn (array $model) => [
+                    $model['model_id'] => [
+                        'name' => $model['display_name'],
+                        'context_window' => $model['context_window'],
+                        'max_output_tokens' => $model['max_output_tokens'],
+                    ],
+                ])
+                ->toArray();
+        }
+        return parent::getModels();
+    }
+
     protected function isCliBinaryAvailable(): bool
     {
         $home = getenv('HOME') ?: '/home/appuser';

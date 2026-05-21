@@ -300,16 +300,33 @@ class ConfigController extends Controller
      */
     protected function getModelsForProvider(string $provider): array
     {
-        return collect(config("ai.models.{$provider}", []))
+        $models = $this->getModelConfigsForProvider($provider);
+        return collect($models)
             ->mapWithKeys(fn ($m) => [$m['model_id'] => $m['display_name']])
             ->toArray();
     }
 
     protected function getMaxContextPerProvider(string $provider): array
     {
-        return collect(config("ai.models.{$provider}", []))
+        $models = $this->getModelConfigsForProvider($provider);
+        return collect($models)
             ->mapWithKeys(fn ($m) => [$m['model_id'] => $m['max_context_window'] ?? $m['context_window']])
             ->toArray();
+    }
+
+    /**
+     * Get full model configs for a provider.
+     * For cursor_agent: dynamically discovers from CLI, falls back to static config.
+     */
+    private function getModelConfigsForProvider(string $provider): array
+    {
+        if ($provider === 'cursor_agent') {
+            $dynamic = \App\Services\Providers\CursorAgentProvider::discoverModels();
+            if (!empty($dynamic)) {
+                return $dynamic;
+            }
+        }
+        return config("ai.models.{$provider}", []);
     }
 
     /**

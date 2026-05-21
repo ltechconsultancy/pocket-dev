@@ -274,7 +274,7 @@ class Agent extends Model
                 $config
             ),
             Provider::CursorAgent->value => array_merge(
-                ['type' => 'cursor_agent', 'effort' => 'high', 'thinking' => true],
+                ['type' => 'cursor_agent', 'effort' => 'high', 'thinking' => true, 'fast' => false],
                 $config
             ),
             default => ['type' => 'none'],

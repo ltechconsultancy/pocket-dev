@@ -423,6 +423,25 @@
                         </select>
                         <p class="text-xs text-gray-400 mt-1">Controls reasoning depth and compute budget</p>
                     </div>
+
+                    <!-- Fast mode toggle -->
+                    @php $cursorFast = old('cursor_agent_fast', ($agent->reasoning_config['fast'] ?? null) ?? ($sourceAgent->reasoning_config['fast'] ?? false)); @endphp
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input
+                            type="hidden"
+                            name="cursor_agent_fast"
+                            value="0"
+                        >
+                        <input
+                            type="checkbox"
+                            name="cursor_agent_fast"
+                            value="1"
+                            {{ $cursorFast ? 'checked' : '' }}
+                            class="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                        >
+                        <span class="text-sm font-medium">Fast Mode</span>
+                        <span class="text-xs text-gray-400">(faster responses, slightly lower quality)</span>
+                    </label>
                 </div>
 
                 <!-- Response Level -->

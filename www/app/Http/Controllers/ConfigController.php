@@ -465,6 +465,7 @@ class ConfigController extends Controller
                 'codex_reasoning_effort' => 'nullable|string|in:none,minimal,low,medium,high,xhigh',
                 'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
                 'cursor_agent_thinking' => 'nullable|in:0,1',
+                'cursor_agent_fast' => 'nullable|in:0,1',
                 'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'response_level' => 'nullable|integer|min:1|max:5',
                 'inherit_workspace_tools' => 'nullable|in:0,1',
@@ -595,6 +596,7 @@ class ConfigController extends Controller
                 'codex_reasoning_effort' => 'nullable|string|in:none,minimal,low,medium,high,xhigh',
                 'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
                 'cursor_agent_thinking' => 'nullable|in:0,1',
+                'cursor_agent_fast' => 'nullable|in:0,1',
                 'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'response_level' => 'nullable|integer|min:1|max:5',
                 'inherit_workspace_tools' => 'nullable|in:0,1',
@@ -764,10 +766,11 @@ class ConfigController extends Controller
             'codex' => isset($validated['codex_reasoning_effort'])
                 ? ['effort' => $validated['codex_reasoning_effort']]
                 : null,
-            'cursor_agent' => (isset($validated['cursor_agent_reasoning_effort']) || isset($validated['cursor_agent_thinking']))
+            'cursor_agent' => (isset($validated['cursor_agent_reasoning_effort']) || isset($validated['cursor_agent_thinking']) || isset($validated['cursor_agent_fast']))
                 ? [
                     'effort' => $validated['cursor_agent_reasoning_effort'] ?? 'high',
                     'thinking' => (bool) ($validated['cursor_agent_thinking'] ?? true),
+                    'fast' => (bool) ($validated['cursor_agent_fast'] ?? false),
                 ]
                 : null,
             default => null,

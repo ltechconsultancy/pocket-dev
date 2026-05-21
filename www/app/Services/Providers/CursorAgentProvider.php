@@ -155,9 +155,14 @@ class CursorAgentProvider extends AbstractCliProvider
         $modelConfig = $this->getModelConfig($baseModel);
         $resolvedModel = $this->resolveModelId($baseModel, $effort, $thinking, $modelConfig);
 
-        // Append -fast suffix if requested and supported
+        // Append -fast suffix if requested — verify the fast variant actually exists
         if ($fast && ($modelConfig['effort_variants']['has_fast'] ?? false)) {
-            $resolvedModel .= '-fast';
+            $fastModel = $resolvedModel . '-fast';
+            // Check against discovered models to avoid invalid combinations
+            $allModels = self::getKnownModelIds();
+            if (empty($allModels) || isset($allModels[$fastModel])) {
+                $resolvedModel = $fastModel;
+            }
         }
 
         // Sync MCP servers from Claude Code config to Cursor config
@@ -441,8 +446,11 @@ class CursorAgentProvider extends AbstractCliProvider
 
                 $effortVariants = null;
                 if (!empty($effortLevels) || $hasThinking || $hasFast) {
+                    // Only set type if there are actual effort levels or thinking;
+                    // fast-only models (like composer) just need has_fast flag
+                    $effectiveType = (!empty($effortLevels) || $hasThinking) ? $type : 'none';
                     $effortVariants = [
-                        'type' => $type,
+                        'type' => $effectiveType,
                         'has_thinking' => $hasThinking,
                         'has_fast' => $hasFast,
                     ];
@@ -498,6 +506,36 @@ class CursorAgentProvider extends AbstractCliProvider
             Log::info('cursor_agent: Discovered ' . count($models) . ' model families from CLI');
 
             return $models;
+        });
+    }
+
+    /**
+     * Get all known model IDs from the CLI (cached).
+     * Returns a map of model_id => true for fast lookup.
+     */
+    private static function getKnownModelIds(): array
+    {
+        return Cache::remember('cursor_agent:all_model_ids', 3600, function () {
+            $home = getenv('HOME') ?: '/home/appuser';
+            $agentBin = $home . '/.local/bin/agent';
+            if (!file_exists($agentBin)) {
+                $agentBin = 'agent';
+            }
+
+            $output = shell_exec($agentBin . ' models 2>&1');
+            if ($output === null) {
+                return [];
+            }
+
+            $ids = [];
+            foreach (explode("\n", $output) as $line) {
+                $line = trim($line);
+                if (str_contains($line, ' - ') && !str_starts_with($line, 'Available') && !str_starts_with($line, 'Tip:')) {
+                    [$id] = explode(' - ', $line, 2);
+                    $ids[trim($id)] = true;
+                }
+            }
+            return $ids;
         });
     }
 

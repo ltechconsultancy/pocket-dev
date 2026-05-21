@@ -8,6 +8,7 @@ use App\Services\AppSettingsService;
 use App\Services\ModelRepository;
 use App\Streaming\StreamEvent;
 use Generator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -326,18 +327,243 @@ class CursorAgentProvider extends AbstractCliProvider
     // ========================================================================
 
     /**
-     * Look up the model config from ai.php by base model ID.
+     * Look up the model config by base model ID.
+     * Checks dynamic models first, then falls back to static config.
      */
     private function getModelConfig(string $baseModelId): array
     {
-        $models = config('ai.models.cursor_agent', []);
-        foreach ($models as $model) {
+        // Try dynamic models first
+        $dynamic = self::discoverModels();
+        foreach ($dynamic as $model) {
+            if (($model['model_id'] ?? '') === $baseModelId) {
+                return $model;
+            }
+        }
+        // Fallback to static config
+        foreach (config('ai.models.cursor_agent', []) as $model) {
             if (($model['model_id'] ?? '') === $baseModelId) {
                 return $model;
             }
         }
         // Unknown model, treat as no effort control
         return ['model_id' => $baseModelId, 'effort_variants' => null];
+    }
+
+    /**
+     * Dynamically discover available models from `agent models` CLI output.
+     *
+     * Parses the raw model list, groups variants into base families,
+     * and infers effort_variants + thinking support from naming patterns.
+     * Results are cached for 1 hour.
+     *
+     * @return array List of model configs compatible with ai.php format
+     */
+    public static function discoverModels(): array
+    {
+        return Cache::remember('cursor_agent:models', 3600, function () {
+            $home = getenv('HOME') ?: '/home/appuser';
+            $agentBin = $home . '/.local/bin/agent';
+            if (!file_exists($agentBin)) {
+                $agentBin = 'agent';
+            }
+
+            $output = shell_exec($agentBin . ' models 2>&1');
+            if ($output === null) {
+                Log::warning('cursor_agent: Failed to run agent models');
+                return [];
+            }
+
+            // Parse "model_id - Display Name" lines
+            $rawModels = [];
+            foreach (explode("\n", $output) as $line) {
+                $line = trim($line);
+                if (str_contains($line, ' - ') && !str_starts_with($line, 'Available') && !str_starts_with($line, 'Tip:')) {
+                    [$id, $name] = explode(' - ', $line, 2);
+                    $id = trim($id);
+                    $name = trim(str_replace([' (current)', ' (default)'], '', $name));
+                    $rawModels[$id] = $name;
+                }
+            }
+
+            if (empty($rawModels)) {
+                return [];
+            }
+
+            // Group into base families by stripping known suffixes
+            $families = [];
+            foreach ($rawModels as $id => $name) {
+                $base = self::extractBaseModel($id);
+                if (!isset($families[$base])) {
+                    $families[$base] = ['variants' => [], 'display' => null];
+                }
+                $families[$base]['variants'][$id] = $name;
+            }
+
+            // Build model configs for each family
+            $models = [];
+            foreach ($families as $base => $family) {
+                $variants = $family['variants'];
+                $variantIds = array_keys($variants);
+
+                // Determine thinking support (has both X and X-thinking variants)
+                $hasThinking = false;
+                foreach ($variantIds as $vid) {
+                    if (str_contains($vid, 'thinking')) {
+                        $hasThinking = true;
+                        break;
+                    }
+                }
+
+                // Determine effort levels
+                $effortLevels = self::inferEffortLevels($base, $variantIds);
+                $type = self::inferVariantType($base, $variantIds, $hasThinking);
+
+                // Pick display name from the "default" variant
+                $displayName = $variants[$base]
+                    ?? $variants[array_key_first($variants)]
+                    ?? ucwords(str_replace('-', ' ', $base));
+                // Clean display name: remove effort/thinking suffixes
+                $displayName = preg_replace('/\s*(Low|Medium|High|Extra High|Max|Thinking|Fast|None|1M)\s*/i', ' ', $displayName);
+                $displayName = trim(preg_replace('/\s+/', ' ', $displayName));
+                if (empty($displayName)) {
+                    $displayName = ucwords(str_replace('-', ' ', $base));
+                }
+
+                $effortVariants = null;
+                if (!empty($effortLevels) || $hasThinking) {
+                    $effortVariants = [
+                        'type' => $type,
+                        'has_thinking' => $hasThinking,
+                    ];
+                    if (!empty($effortLevels)) {
+                        $effortVariants['levels'] = $effortLevels;
+                        $effortVariants['default'] = in_array('high', $effortLevels) ? 'high'
+                            : (in_array('medium', $effortLevels) ? 'medium' : $effortLevels[0]);
+                        // Map xhigh → extra-high for GPT-5.5
+                        if (in_array('extra-high', $effortLevels)) {
+                            $effortVariants['level_map'] = ['xhigh' => 'extra-high'];
+                        }
+                        // Map medium → '' for models where base = default (gpt-5.2, gpt-5.3-codex etc.)
+                        if (isset($rawModels[$base]) && !isset($rawModels[$base . '-medium'])) {
+                            $effortVariants['level_map'] = array_merge(
+                                $effortVariants['level_map'] ?? [],
+                                ['medium' => '']
+                            );
+                        }
+                    }
+                }
+
+                $has1M = str_contains($variants[array_key_first($variants)] ?? '', '1M');
+
+                $models[] = [
+                    'model_id'                      => $base,
+                    'display_name'                  => $displayName,
+                    'effort_variants'               => $effortVariants,
+                    'context_window'                => 200000,
+                    'max_context_window'            => 200000,
+                    'max_output_tokens'             => str_contains($base, 'opus') ? 128000 : 64000,
+                    'input_price_per_million'       => null,
+                    'output_price_per_million'      => null,
+                    'cache_write_price_per_million' => null,
+                    'cache_read_price_per_million'  => null,
+                ];
+            }
+
+            // Sort: auto first, then Claude, then GPT, then others
+            usort($models, function ($a, $b) {
+                $order = fn($id) => match (true) {
+                    $id === 'auto' => 0,
+                    str_starts_with($id, 'claude-opus-4-7') => 1,
+                    str_starts_with($id, 'claude') => 2,
+                    str_starts_with($id, 'gpt-5.5') => 3,
+                    str_starts_with($id, 'gpt-5.4') && !str_contains($id, 'mini') && !str_contains($id, 'nano') => 4,
+                    str_starts_with($id, 'gpt') => 5,
+                    str_starts_with($id, 'composer') => 8,
+                    default => 6,
+                };
+                return $order($a['model_id']) <=> $order($b['model_id']);
+            });
+
+            Log::info('cursor_agent: Discovered ' . count($models) . ' model families from CLI');
+
+            return $models;
+        });
+    }
+
+    /**
+     * Extract the base model ID by stripping effort/thinking/fast suffixes.
+     */
+    private static function extractBaseModel(string $modelId): string
+    {
+        $m = $modelId;
+        // Remove -fast
+        $m = preg_replace('/-fast$/', '', $m);
+        // Remove -thinking-{level} (prefix pattern: opus 4.7)
+        $m = preg_replace('/-thinking-(low|medium|high|xhigh|max|extra-high)$/', '', $m);
+        // Remove -{level}-thinking (suffix pattern: opus 4.6)
+        $m = preg_replace('/-(low|medium|high|max)-thinking$/', '', $m);
+        // Remove -thinking (toggle pattern: sonnet 4.5)
+        $m = preg_replace('/-thinking$/', '', $m);
+        // Remove effort suffixes
+        $m = preg_replace('/-(none|low|medium|high|xhigh|max|extra-high)$/', '', $m);
+
+        return $m;
+    }
+
+    /**
+     * Infer available effort levels from variant model IDs.
+     */
+    private static function inferEffortLevels(string $base, array $variantIds): array
+    {
+        $levels = [];
+        $knownLevels = ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'extra-high'];
+
+        foreach ($variantIds as $vid) {
+            // Strip -fast and -thinking parts to isolate effort
+            $clean = preg_replace('/-fast$/', '', $vid);
+            $clean = preg_replace('/-thinking/', '', $clean);
+
+            // Check what's left after removing base
+            $suffix = substr($clean, strlen($base));
+            $suffix = ltrim($suffix, '-');
+
+            if (in_array($suffix, $knownLevels) && !in_array($suffix, $levels)) {
+                $levels[] = $suffix;
+            }
+        }
+
+        // Sort by known order
+        $order = array_flip($knownLevels);
+        usort($levels, fn($a, $b) => ($order[$a] ?? 99) <=> ($order[$b] ?? 99));
+
+        return $levels;
+    }
+
+    /**
+     * Infer the variant type pattern from model IDs.
+     */
+    private static function inferVariantType(string $base, array $variantIds, bool $hasThinking): string
+    {
+        if (!$hasThinking) {
+            return 'suffix';
+        }
+
+        // Check for prefix_thinking pattern: {base}-thinking-{level}
+        foreach ($variantIds as $vid) {
+            if (preg_match('/^' . preg_quote($base) . '-thinking-(low|medium|high|xhigh|max)/', $vid)) {
+                return 'prefix_thinking';
+            }
+        }
+
+        // Check for suffix_thinking pattern: {base}-{level}-thinking
+        foreach ($variantIds as $vid) {
+            if (preg_match('/^' . preg_quote($base) . '-(low|medium|high|max)-thinking/', $vid)) {
+                return 'suffix_thinking';
+            }
+        }
+
+        // Default: toggle_thinking (just {base}-thinking)
+        return 'toggle_thinking';
     }
 
     /**

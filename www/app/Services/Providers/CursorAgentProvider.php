@@ -144,14 +144,21 @@ class CursorAgentProvider extends AbstractCliProvider
     ): string {
         $baseModel = $conversation->model ?? config('ai.providers.cursor_agent.default_model', 'auto');
 
-        // Resolve base model + thinking + effort into the final model ID
-        // E.g. "claude-opus-4-7" + thinking=true + effort "high" → "claude-opus-4-7-thinking-high"
-        // E.g. "claude-opus-4-7" + thinking=false + effort "max" → "claude-opus-4-7-max"
+        // Resolve base model + thinking + effort + fast into the final model ID
+        // E.g. "claude-opus-4-7" + thinking + high        → "claude-opus-4-7-thinking-high"
+        // E.g. "claude-opus-4-7" + thinking + high + fast  → "claude-opus-4-7-thinking-high-fast"
+        // E.g. "claude-opus-4-7" + !thinking + max         → "claude-opus-4-7-max"
         $reasoningConfig = $conversation->getReasoningConfig();
         $effort = $reasoningConfig['effort'] ?? 'high';
         $thinking = $reasoningConfig['thinking'] ?? true;
+        $fast = $reasoningConfig['fast'] ?? false;
         $modelConfig = $this->getModelConfig($baseModel);
         $resolvedModel = $this->resolveModelId($baseModel, $effort, $thinking, $modelConfig);
+
+        // Append -fast suffix if requested and supported
+        if ($fast && ($modelConfig['effort_variants']['has_fast'] ?? false)) {
+            $resolvedModel .= '-fast';
+        }
 
         // Ensure ~/.cursor directories are writable BEFORE syncing MCP config
         // (syncMcpServersFromClaudeCode may create ~/.cursor with wrong permissions)
@@ -407,10 +414,13 @@ class CursorAgentProvider extends AbstractCliProvider
 
                 // Determine thinking support (has both X and X-thinking variants)
                 $hasThinking = false;
+                $hasFast = false;
                 foreach ($variantIds as $vid) {
                     if (str_contains($vid, 'thinking')) {
                         $hasThinking = true;
-                        break;
+                    }
+                    if (str_ends_with($vid, '-fast')) {
+                        $hasFast = true;
                     }
                 }
 
@@ -430,10 +440,11 @@ class CursorAgentProvider extends AbstractCliProvider
                 }
 
                 $effortVariants = null;
-                if (!empty($effortLevels) || $hasThinking) {
+                if (!empty($effortLevels) || $hasThinking || $hasFast) {
                     $effortVariants = [
                         'type' => $type,
                         'has_thinking' => $hasThinking,
+                        'has_fast' => $hasFast,
                     ];
                     if (!empty($effortLevels)) {
                         $effortVariants['levels'] = $effortLevels;

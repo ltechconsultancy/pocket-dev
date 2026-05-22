@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Agent;
 use App\Models\PocketTool;
 use App\Models\Workspace;
+use App\Services\ClaudeCodeUsageService;
+use App\Services\CursorUsageService;
 use App\Services\NativeToolService;
 use App\Services\ToolSelector;
 use App\Services\VersionService;
@@ -2420,6 +2422,19 @@ class ConfigController extends Controller
             'updateInfo'        => $updateInfo,
             'branches'          => $branches,
             'availableReleases' => $availableReleases,
+        ]);
+    }
+
+    /**
+     * Usage tracking dashboard.
+     */
+    public function showUsage(Request $request)
+    {
+        $request->session()->put('config_last_section', 'usage');
+
+        return view('config.usage', [
+            'hasClaudeToken' => app(ClaudeCodeUsageService::class)->hasValidToken(),
+            'hasCursorCredentials' => app(CursorUsageService::class)->hasCredentials(),
         ]);
     }
 

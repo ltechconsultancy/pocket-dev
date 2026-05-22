@@ -914,11 +914,15 @@ export function createStreamStore(callbacks) {
 
                         messageStore.addTokens({ input, output, cacheCreation, cacheRead, cost });
 
-                        // Update context window tracking
+                        // Context fill excludes cache (server sends last_context_tokens when enriched)
+                        const lastContext = event.metadata.last_context_tokens
+                            ?? ((event.metadata.context_input_tokens ?? Math.max(0, input - cacheCreation - cacheRead))
+                                + (event.metadata.context_output_tokens ?? output));
+
                         callbacks.updateContext({
                             contextWindowSize: event.metadata.context_window_size,
                             contextPercentage: event.metadata.context_percentage,
-                            lastContextTokens: input + output
+                            lastContextTokens: lastContext
                         });
 
                         // Store in turn state

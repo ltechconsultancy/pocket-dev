@@ -2196,7 +2196,9 @@
                         getModel: () => this.model,
                         getCurrentAgent: () => this.currentAgent,
                         updateContext: (data) => {
-                            if (data.contextWindowSize) this.contextWindowSize = data.contextWindowSize;
+                            if (data.contextWindowSize !== undefined && data.contextWindowSize > 0) {
+                                this.contextWindowSize = data.contextWindowSize;
+                            }
                             if (data.contextPercentage !== undefined) {
                                 this.contextPercentage = data.contextPercentage;
                                 this.lastContextTokens = data.lastContextTokens || 0;
@@ -6031,11 +6033,19 @@
                     }
                 },
 
+                formatTokenCountShort(n) {
+                    const num = Number(n) || 0;
+                    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
+                    if (num >= 10_000) return (num / 1000).toFixed(1) + 'k';
+                    if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
+                    return String(num);
+                },
+
                 formatContextUsage() {
                     if (!this.contextWindowSize) return 'Context: --';
-                    const used = (this.lastContextTokens / 1000).toFixed(0);
-                    const total = (this.contextWindowSize / 1000).toFixed(0);
-                    return `${used}k / ${total}k tokens`;
+                    const used = this.formatTokenCountShort(this.lastContextTokens);
+                    const total = this.formatTokenCountShort(this.contextWindowSize);
+                    return `${used} / ${total} tokens`;
                 },
 
                 updateContextWarningLevel() {
@@ -6095,15 +6105,19 @@
                                 html += `<div><span class="text-blue-300 font-semibold">Description:</span> ${this.escapeHtml(input.description)}</div>`;
                             }
                         } else if (msg.toolName === 'Read' || msg.toolName === 'read') {
-                            html += `<div><span class="text-blue-300 font-semibold">File:</span> ${this.escapeHtml(input.file_path || '')}</div>`;
-                        } else if (msg.toolName === 'Edit' || msg.toolName === 'edit') {
-                            html += `<div><span class="text-blue-300 font-semibold">File:</span> ${this.escapeHtml(input.file_path || '')}</div>`;
-                            if (input.old_string) {
-                                const preview = input.old_string.length > inputLimit ? input.old_string.substring(0, inputLimit) + '...' : input.old_string;
+                            const filePath = input.file_path || input.path || '';
+                            html += `<div><span class="text-blue-300 font-semibold">File:</span> ${this.escapeHtml(filePath)}</div>`;
+                        } else if (msg.toolName === 'Edit' || msg.toolName === 'edit' || msg.toolName === 'Write' || msg.toolName === 'write') {
+                            const filePath = input.file_path || input.path || '';
+                            html += `<div><span class="text-blue-300 font-semibold">File:</span> ${this.escapeHtml(filePath)}</div>`;
+                            const oldStr = input.old_string || input.oldText || '';
+                            const newStr = input.new_string || input.newText || input.streamContent || '';
+                            if (oldStr) {
+                                const preview = oldStr.length > inputLimit ? oldStr.substring(0, inputLimit) + '...' : oldStr;
                                 html += `<div><span class="text-blue-300 font-semibold">Find:</span> <pre class="mt-1 text-red-200 bg-red-950/30 px-2 py-1 rounded whitespace-pre-wrap text-xs">${this.escapeHtml(preview)}</pre></div>`;
                             }
-                            if (input.new_string) {
-                                const preview = input.new_string.length > inputLimit ? input.new_string.substring(0, inputLimit) + '...' : input.new_string;
+                            if (newStr) {
+                                const preview = newStr.length > inputLimit ? newStr.substring(0, inputLimit) + '...' : newStr;
                                 html += `<div><span class="text-blue-300 font-semibold">Replace:</span> <pre class="mt-1 text-green-200 bg-green-950/30 px-2 py-1 rounded whitespace-pre-wrap text-xs">${this.escapeHtml(preview)}</pre></div>`;
                             }
                         } else {

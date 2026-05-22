@@ -261,6 +261,9 @@ class CursorAgentProvider extends AbstractCliProvider
             'totalCost' => null,
             'inputTokens' => 0,
             'outputTokens' => 0,
+            'contextInputTokens' => 0,
+            'cacheReadTokens' => 0,
+            'cacheWriteTokens' => 0,
         ];
     }
 
@@ -334,12 +337,20 @@ class CursorAgentProvider extends AbstractCliProvider
     protected function emitUsage(array $state): Generator
     {
         if ($state['totalCost'] !== null || $state['inputTokens'] > 0) {
+            $cacheWrite = $state['cacheWriteTokens'] > 0 ? $state['cacheWriteTokens'] : null;
+            $cacheRead = $state['cacheReadTokens'] > 0 ? $state['cacheReadTokens'] : null;
+            $contextInput = $state['contextInputTokens'] > 0 ? $state['contextInputTokens'] : null;
+            $contextOutput = $state['outputTokens'] > 0 ? $state['outputTokens'] : null;
+
             yield StreamEvent::usage(
                 $state['inputTokens'],
                 $state['outputTokens'],
-                null, // cacheCreation
-                null, // cacheRead
-                $state['totalCost']
+                $cacheWrite,
+                $cacheRead,
+                $state['totalCost'],
+                null,
+                $contextInput,
+                $contextOutput
             );
         }
     }
@@ -856,11 +867,14 @@ class CursorAgentProvider extends AbstractCliProvider
 
                     // Extract relevant args for display
                     $args = $value['args'] ?? $value;
+                    unset($args['result']);
                     // Remove internal fields, keep user-visible ones
                     unset($args['toolCallId'], $args['skipApproval'], $args['simpleCommands'],
                           $args['hasInputRedirect'], $args['hasOutputRedirect'], $args['parsingResult'],
                           $args['fileOutputThresholdBytes'], $args['isBackground'], $args['timeoutBehavior'],
-                          $args['hardTimeout'], $args['closeStdin']);
+                          $args['hardTimeout'], $args['closeStdin'], $args['workingDirectory'], $args['timeout']);
+                    $toolName = $this->normalizeCursorToolDisplayName($toolName);
+                    $args = $this->normalizeCursorToolArgs($toolName, $args);
                     $inputJson = json_encode($args);
                     break;
                 }
@@ -882,13 +896,120 @@ class CursorAgentProvider extends AbstractCliProvider
                 $state['blockIndex']++;
             }
 
-            // Emit tool result
-            $output = $data['output'] ?? '';
-            if (is_array($output)) {
-                $output = json_encode($output);
+            $toolCall = $data['tool_call'] ?? [];
+            [$output, $isError] = $this->extractCursorToolResult($toolCall);
+            if ($output === '' && isset($data['output'])) {
+                $output = $data['output'];
+                if (is_array($output)) {
+                    $output = json_encode($output);
+                }
             }
-            yield StreamEvent::toolResult($callId, (string) $output, false);
+            yield StreamEvent::toolResult($callId, (string) $output, $isError);
         }
+    }
+
+    /**
+     * Map Cursor CLI tool names to PocketDev UI labels (Claude Code conventions).
+     */
+    private function normalizeCursorToolDisplayName(string $toolName): string
+    {
+        return match (strtolower($toolName)) {
+            'shell' => 'Bash',
+            default => $toolName,
+        };
+    }
+
+    /**
+     * Normalize Cursor tool args to Claude Code field names for the chat UI.
+     *
+     * Cursor uses path/streamContent; PocketDev formatToolContent expects file_path/old_string/new_string.
+     */
+    private function normalizeCursorToolArgs(string $toolName, array $args): array
+    {
+        if (isset($args['path']) && !isset($args['file_path'])) {
+            $args['file_path'] = $args['path'];
+        }
+
+        $lower = strtolower($toolName);
+
+        if (in_array($lower, ['edit', 'write', 'strreplace', 'searchreplace'], true)) {
+            if (isset($args['streamContent']) && !isset($args['new_string'])) {
+                $args['new_string'] = $args['streamContent'];
+            }
+            if (isset($args['oldText']) && !isset($args['old_string'])) {
+                $args['old_string'] = $args['oldText'];
+            }
+            if (isset($args['newText']) && !isset($args['new_string'])) {
+                $args['new_string'] = $args['newText'];
+            }
+        }
+
+        if ($lower === 'glob' && isset($args['globPattern']) && !isset($args['pattern'])) {
+            $args['pattern'] = $args['globPattern'];
+        }
+
+        return $args;
+    }
+
+    /**
+     * Extract human-readable tool output from Cursor's nested tool_call.result structure.
+     *
+     * @return array{0: string, 1: bool} [content, isError]
+     */
+    private function extractCursorToolResult(array $toolCall): array
+    {
+        foreach ($toolCall as $value) {
+            if (!is_array($value)) {
+                continue;
+            }
+
+            $result = $value['result'] ?? null;
+            if (!is_array($result)) {
+                continue;
+            }
+
+            if (isset($result['error']) && is_array($result['error'])) {
+                $message = $result['error']['modelVisibleError']
+                    ?? $result['error']['error']
+                    ?? json_encode($result['error'], JSON_UNESCAPED_UNICODE);
+
+                return [(string) $message, true];
+            }
+
+            if (isset($result['rejected']) && is_array($result['rejected'])) {
+                $reason = $result['rejected']['reason'] ?? 'Command rejected';
+                $command = $result['rejected']['command'] ?? '';
+
+                return [trim($command . ($reason !== '' ? "\n" . $reason : '')), true];
+            }
+
+            if (isset($result['success']) && is_array($result['success'])) {
+                $success = $result['success'];
+
+                if (!empty($success['message'])) {
+                    return [(string) $success['message'], false];
+                }
+                if (!empty($success['diffString'])) {
+                    return [(string) $success['diffString'], false];
+                }
+                if (!empty($success['content'])) {
+                    $content = (string) $success['content'];
+                    // Avoid dumping entire files into the tool result panel
+                    if (strlen($content) > 4000) {
+                        $path = $success['path'] ?? 'file';
+                        $lines = $success['totalLines'] ?? '?';
+
+                        return ["Read {$path} ({$lines} lines)", false];
+                    }
+
+                    return [$content, false];
+                }
+
+                return [json_encode($success, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), false];
+            }
+        }
+
+        return ['', false];
     }
 
     /**
@@ -906,10 +1027,12 @@ class CursorAgentProvider extends AbstractCliProvider
         // Extract usage (Cursor uses camelCase: inputTokens, outputTokens)
         $usage = $data['usage'] ?? [];
         if (!empty($usage)) {
-            $state['inputTokens'] = ($usage['inputTokens'] ?? $usage['input_tokens'] ?? 0)
-                + ($usage['cacheReadTokens'] ?? $usage['cache_read_input_tokens'] ?? 0)
-                + ($usage['cacheWriteTokens'] ?? $usage['cache_creation_input_tokens'] ?? 0);
-            $state['outputTokens'] = $usage['outputTokens'] ?? $usage['output_tokens'] ?? 0;
+            $promptInput = (int) ($usage['inputTokens'] ?? $usage['input_tokens'] ?? 0);
+            $state['cacheReadTokens'] = (int) ($usage['cacheReadTokens'] ?? $usage['cache_read_input_tokens'] ?? 0);
+            $state['cacheWriteTokens'] = (int) ($usage['cacheWriteTokens'] ?? $usage['cache_creation_input_tokens'] ?? 0);
+            $state['contextInputTokens'] = $promptInput;
+            $state['inputTokens'] = $promptInput + $state['cacheReadTokens'] + $state['cacheWriteTokens'];
+            $state['outputTokens'] = (int) ($usage['outputTokens'] ?? $usage['output_tokens'] ?? 0);
         }
 
         if (isset($data['total_cost_usd'])) {

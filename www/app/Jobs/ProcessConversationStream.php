@@ -409,16 +409,24 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
 
             // For usage events, calculate cost and emit enriched event
             if ($event->type === StreamEvent::USAGE) {
+                // Context bar requires context_window_size before enriching the SSE event
+                $conversation->ensureContextWindowSize();
+                $conversation->refresh();
+
                 $inputTokens = $event->metadata['input_tokens'] ?? $inputTokens;
                 $outputTokens = $event->metadata['output_tokens'] ?? $outputTokens;
                 $cacheCreationTokens = $event->metadata['cache_creation_tokens'] ?? $cacheCreationTokens;
                 $cacheReadTokens = $event->metadata['cache_read_tokens'] ?? $cacheReadTokens;
 
-                // Extract context-specific tokens if provided (for CLI providers with multi-turn)
-                // These represent the LAST turn's usage for context percentage calculation
-                // Use same preserve-previous pattern as billing tokens for consistency
-                $contextInputTokens = $event->metadata['context_input_tokens'] ?? $contextInputTokens;
-                $contextOutputTokens = $event->metadata['context_output_tokens'] ?? $contextOutputTokens;
+                // Context tokens: provider may send context_input_tokens; else billing minus cache
+                [$contextInputTokens, $contextOutputTokens] = $this->resolveContextTokens(
+                    $inputTokens,
+                    $outputTokens,
+                    $cacheCreationTokens,
+                    $cacheReadTokens,
+                    $event->metadata['context_input_tokens'] ?? $contextInputTokens,
+                    $event->metadata['context_output_tokens'] ?? $contextOutputTokens,
+                );
 
                 // Calculate cost using model pricing
                 // For CLI providers: all token fields are cumulative. Compute deltas
@@ -958,43 +966,40 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
 
         $conversation->addTokenUsage($inputTokens, $outputTokens);
 
-        // Update context window tracking
-        // Use context-specific tokens if provided (for CLI providers with multi-turn),
-        // otherwise fall back to billing tokens (correct for API providers)
-        $ctxInput = $contextInputTokens ?? $inputTokens;
-        $ctxOutput = $contextOutputTokens ?? $outputTokens;
-        if ($ctxInput > 0) {
+        // Update context window tracking (prompt + completion only, excludes cache)
+        [$ctxInput, $ctxOutput] = $this->resolveContextTokens(
+            $inputTokens,
+            $outputTokens,
+            $cacheCreationTokens,
+            $cacheReadTokens,
+            $contextInputTokens,
+            $contextOutputTokens,
+        );
+        if ($ctxInput > 0 || $ctxOutput > 0) {
             $conversation->updateContextUsage($ctxInput, $ctxOutput);
-
-            // Ensure context_window_size is set (for existing conversations that don't have it)
-            if (!$conversation->context_window_size) {
-                try {
-                    // For 1M context agents, use max_context_window (1M) instead of default (200K)
-                    $conversation->loadMissing('agent');
-                    if ($conversation->agent?->extended_context) {
-                        $models = app(\App\Services\ModelRepository::class);
-                        $maxContextWindow = $models->getMaxContextWindow($conversation->model);
-                        if ($maxContextWindow > 0) {
-                            $conversation->updateContextWindowSize($maxContextWindow);
-                        }
-                    } else {
-                        $provider = app(\App\Services\ProviderFactory::class)->make($conversation->provider_type);
-                        $contextWindow = $provider->getContextWindow($conversation->model);
-                        $conversation->updateContextWindowSize($contextWindow);
-                    }
-                } catch (\Exception $e) {
-                    // Model not found or provider error - skip (will retry on next turn)
-                    Log::debug('ProcessConversationStream: Failed to get context window', [
-                        'conversation' => $this->conversationUuid,
-                        'model' => $conversation->model,
-                        'provider' => $conversation->provider_type,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
+            $conversation->ensureContextWindowSize();
         }
 
         return $message;
+    }
+
+    /**
+     * Resolve tokens used for context window fill (excludes cache read/write from billing totals).
+     *
+     * @return array{0: int, 1: int} [contextInput, contextOutput]
+     */
+    private function resolveContextTokens(
+        int $inputTokens,
+        int $outputTokens,
+        ?int $cacheCreationTokens,
+        ?int $cacheReadTokens,
+        ?int $contextInputTokens,
+        ?int $contextOutputTokens,
+    ): array {
+        $ctxOut = $contextOutputTokens ?? $outputTokens;
+        $ctxIn = $contextInputTokens ?? max(0, $inputTokens - (int) ($cacheCreationTokens ?? 0) - (int) ($cacheReadTokens ?? 0));
+
+        return [$ctxIn, $ctxOut];
     }
 
     private function saveToolResultMessage(Conversation $conversation, array $toolResults): Message

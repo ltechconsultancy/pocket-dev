@@ -261,6 +261,9 @@ class CursorAgentProvider extends AbstractCliProvider
             'totalCost' => null,
             'inputTokens' => 0,
             'outputTokens' => 0,
+            'contextInputTokens' => 0,
+            'cacheReadTokens' => 0,
+            'cacheWriteTokens' => 0,
         ];
     }
 
@@ -334,12 +337,20 @@ class CursorAgentProvider extends AbstractCliProvider
     protected function emitUsage(array $state): Generator
     {
         if ($state['totalCost'] !== null || $state['inputTokens'] > 0) {
+            $cacheWrite = $state['cacheWriteTokens'] > 0 ? $state['cacheWriteTokens'] : null;
+            $cacheRead = $state['cacheReadTokens'] > 0 ? $state['cacheReadTokens'] : null;
+            $contextInput = $state['contextInputTokens'] > 0 ? $state['contextInputTokens'] : null;
+            $contextOutput = $state['outputTokens'] > 0 ? $state['outputTokens'] : null;
+
             yield StreamEvent::usage(
                 $state['inputTokens'],
                 $state['outputTokens'],
-                null, // cacheCreation
-                null, // cacheRead
-                $state['totalCost']
+                $cacheWrite,
+                $cacheRead,
+                $state['totalCost'],
+                null,
+                $contextInput,
+                $contextOutput
             );
         }
     }
@@ -1017,10 +1028,12 @@ class CursorAgentProvider extends AbstractCliProvider
         // Extract usage (Cursor uses camelCase: inputTokens, outputTokens)
         $usage = $data['usage'] ?? [];
         if (!empty($usage)) {
-            $state['inputTokens'] = ($usage['inputTokens'] ?? $usage['input_tokens'] ?? 0)
-                + ($usage['cacheReadTokens'] ?? $usage['cache_read_input_tokens'] ?? 0)
-                + ($usage['cacheWriteTokens'] ?? $usage['cache_creation_input_tokens'] ?? 0);
-            $state['outputTokens'] = $usage['outputTokens'] ?? $usage['output_tokens'] ?? 0;
+            $promptInput = (int) ($usage['inputTokens'] ?? $usage['input_tokens'] ?? 0);
+            $state['cacheReadTokens'] = (int) ($usage['cacheReadTokens'] ?? $usage['cache_read_input_tokens'] ?? 0);
+            $state['cacheWriteTokens'] = (int) ($usage['cacheWriteTokens'] ?? $usage['cache_creation_input_tokens'] ?? 0);
+            $state['contextInputTokens'] = $promptInput;
+            $state['inputTokens'] = $promptInput + $state['cacheReadTokens'] + $state['cacheWriteTokens'];
+            $state['outputTokens'] = (int) ($usage['outputTokens'] ?? $usage['output_tokens'] ?? 0);
         }
 
         if (isset($data['total_cost_usd'])) {

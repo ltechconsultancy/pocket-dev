@@ -2160,7 +2160,9 @@
                         getModel: () => this.model,
                         getCurrentAgent: () => this.currentAgent,
                         updateContext: (data) => {
-                            if (data.contextWindowSize) this.contextWindowSize = data.contextWindowSize;
+                            if (data.contextWindowSize !== undefined && data.contextWindowSize > 0) {
+                                this.contextWindowSize = data.contextWindowSize;
+                            }
                             if (data.contextPercentage !== undefined) {
                                 this.contextPercentage = data.contextPercentage;
                                 this.lastContextTokens = data.lastContextTokens || 0;
@@ -5964,11 +5966,19 @@
                     }
                 },
 
+                formatTokenCountShort(n) {
+                    const num = Number(n) || 0;
+                    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
+                    if (num >= 10_000) return (num / 1000).toFixed(1) + 'k';
+                    if (num >= 1000) return (num / 1000).toFixed(1) + 'k';
+                    return String(num);
+                },
+
                 formatContextUsage() {
                     if (!this.contextWindowSize) return 'Context: --';
-                    const used = (this.lastContextTokens / 1000).toFixed(0);
-                    const total = (this.contextWindowSize / 1000).toFixed(0);
-                    return `${used}k / ${total}k tokens`;
+                    const used = this.formatTokenCountShort(this.lastContextTokens);
+                    const total = this.formatTokenCountShort(this.contextWindowSize);
+                    return `${used} / ${total} tokens`;
                 },
 
                 updateContextWarningLevel() {

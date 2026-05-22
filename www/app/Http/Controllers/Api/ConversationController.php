@@ -134,6 +134,9 @@ class ConversationController extends Controller
     public function show(Request $request, Conversation $conversation): JsonResponse
     {
         $conversation->load(['messages.agent', 'agent', 'screen.session.screens.conversation']);
+        $conversation->ensureContextWindowSize();
+        $conversation->refreshLastContextTokensFromMessages();
+        $conversation->refresh();
 
         return response()->json([
             'conversation' => $conversation,

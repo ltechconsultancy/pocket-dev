@@ -212,6 +212,9 @@ class ConversationController extends Controller
             'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
             'claude_code_thinking_tokens' => 'nullable|integer|min:0|max:128000',
             'codex_reasoning_effort' => 'nullable|string|in:minimal,low,medium,high,xhigh',
+            'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
+            'cursor_agent_thinking' => 'nullable|boolean',
+            'cursor_agent_fast' => 'nullable|boolean',
             'response_level' => 'nullable|integer|min:0|max:5',
             // Legacy support - will be converted to provider-specific
             'thinking_level' => 'nullable|integer|min:0|max:4',
@@ -901,6 +904,15 @@ class ConversationController extends Controller
                     : null),
             'codex' => $request->has('codex_reasoning_effort')
                 ? ['effort' => $request->input('codex_reasoning_effort')]
+                : null,
+            'cursor_agent' => ($request->has('cursor_agent_reasoning_effort')
+                || $request->has('cursor_agent_thinking')
+                || $request->has('cursor_agent_fast'))
+                ? [
+                    'effort' => $request->input('cursor_agent_reasoning_effort', 'high'),
+                    'thinking' => $request->boolean('cursor_agent_thinking', true),
+                    'fast' => $request->boolean('cursor_agent_fast', false),
+                ]
                 : null,
             default => null,
         };

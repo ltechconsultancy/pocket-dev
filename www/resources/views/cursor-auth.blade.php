@@ -180,16 +180,18 @@
                 @php
                     $pdUrl = url('/');
                     $apiUploadUrl = "{$pdUrl}/api/cursor/auth/upload";
+                    $uploadToken = $uploadToken ?? '';
+                    $uploadTokenJson = json_encode($uploadToken);
                     $linux1 = 'curl -fsSL https://cursor.com/install | bash && agent login';
-                    $linux2 = "python3 -c \"import json,os; print(json.dumps({'json': open(os.path.expanduser('~/.config/cursor/auth.json')).read()}))\" | curl -s -X POST '{$apiUploadUrl}' -H 'Content-Type: application/json' -d @- && echo 'Done!'";
-                    $linuxAll = "curl -fsSL https://cursor.com/install | bash && agent login && python3 -c \"import json,os; print(json.dumps({'json': open(os.path.expanduser('~/.config/cursor/auth.json')).read()}))\" | curl -s -X POST '{$apiUploadUrl}' -H 'Content-Type: application/json' -d @- && echo 'Done!'";
+                    $linux2 = "python3 -c \"import json,os; print(json.dumps({'json': open(os.path.expanduser('~/.config/cursor/auth.json')).read(), 'upload_token': {$uploadTokenJson}}))\" | curl -s -X POST '{$apiUploadUrl}' -H 'Content-Type: application/json' -d @- && echo 'Done!'";
+                    $linuxAll = "curl -fsSL https://cursor.com/install | bash && agent login && python3 -c \"import json,os; print(json.dumps({'json': open(os.path.expanduser('~/.config/cursor/auth.json')).read(), 'upload_token': {$uploadTokenJson}}))\" | curl -s -X POST '{$apiUploadUrl}' -H 'Content-Type: application/json' -d @- && echo 'Done!'";
                     $win1 = 'irm https://cursor.com/install | iex; agent login';
-                    $win2 = "\$auth = (Get-Content \"\$env:APPDATA\\Cursor\\auth.json\" -Raw -Encoding UTF8).Trim(); \$body = [System.Text.Encoding]::UTF8.GetBytes('{\"json\":' + (\$auth | ConvertTo-Json -Compress) + '}'); Invoke-RestMethod -Uri '{$apiUploadUrl}' -Method Post -ContentType 'application/json' -Body \$body; Write-Host 'Done!'";
-                    $winAll = "irm https://cursor.com/install | iex; agent login; \$auth = (Get-Content \"\$env:APPDATA\\Cursor\\auth.json\" -Raw -Encoding UTF8).Trim(); \$body = [System.Text.Encoding]::UTF8.GetBytes('{\"json\":' + (\$auth | ConvertTo-Json -Compress) + '}'); Invoke-RestMethod -Uri '{$apiUploadUrl}' -Method Post -ContentType 'application/json' -Body \$body; Write-Host 'Done!'";
+                    $win2 = "\$auth = (Get-Content \"\$env:APPDATA\\Cursor\\auth.json\" -Raw -Encoding UTF8).Trim(); \$body = [System.Text.Encoding]::UTF8.GetBytes((@{json=\$auth; upload_token={$uploadTokenJson}} | ConvertTo-Json -Compress)); Invoke-RestMethod -Uri '{$apiUploadUrl}' -Method Post -ContentType 'application/json' -Body \$body; Write-Host 'Done!'";
+                    $winAll = "irm https://cursor.com/install | iex; agent login; \$auth = (Get-Content \"\$env:APPDATA\\Cursor\\auth.json\" -Raw -Encoding UTF8).Trim(); \$body = [System.Text.Encoding]::UTF8.GetBytes((@{json=\$auth; upload_token={$uploadTokenJson}} | ConvertTo-Json -Compress)); Invoke-RestMethod -Uri '{$apiUploadUrl}' -Method Post -ContentType 'application/json' -Body \$body; Write-Host 'Done!'";
                 @endphp
                 <div id="content-laptop" class="tab-content hidden" x-data="{ os: 'linux' }">
                     <p class="text-gray-300 mb-1">Run these commands on your <strong class="text-white">laptop, desktop, or via SSH</strong>.</p>
-                    <p class="text-sm text-gray-400 mb-4">Install the Cursor Agent CLI, log in, then upload credentials to PocketDev.</p>
+                    <p class="text-sm text-gray-400 mb-4">Install the Cursor Agent CLI, log in, then upload credentials to PocketDev. Commands include a one-time token (valid 15 min) — refresh this page if upload fails.</p>
 
                     <!-- OS toggle -->
                     <div class="flex gap-2 mb-6">

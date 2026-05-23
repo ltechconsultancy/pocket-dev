@@ -34,7 +34,7 @@ class CursorAgentProvider extends AbstractCliProvider
      */
     private const RULES_MAX_BYTES = 512_000;
 
-    private const RULES_FILENAME = 'pocketdev-instructions.mdc';
+    private const RULES_FILENAME_PREFIX = 'pocketdev-instructions-';
 
     /**
      * Path to the rules file written for the current run (for cleanup).
@@ -224,7 +224,8 @@ class CursorAgentProvider extends AbstractCliProvider
         // Unlike Claude Code (--system-prompt) the agent CLI has no flag; rules are the supported path.
         if (!empty($options['system'])) {
             $rulesDir = rtrim($workingDir, '/') . '/.cursor/rules';
-            $this->rulesFilePath = $rulesDir . '/' . self::RULES_FILENAME;
+            $rulesFile = self::RULES_FILENAME_PREFIX . $conversation->id . '.mdc';
+            $this->rulesFilePath = $rulesDir . '/' . $rulesFile;
             $this->writePocketDevRulesFile($this->rulesFilePath, $options['system']);
         }
 
@@ -1350,9 +1351,12 @@ class CursorAgentProvider extends AbstractCliProvider
                 return;
             }
 
-            // 4. Build the new config, preserving any non-MCP keys in existing config
+            // 4. Merge Claude MCP servers into existing Cursor config (preserve Cursor-only servers)
+            $existingServers = is_array($existingConfig['mcpServers'] ?? null)
+                ? $existingConfig['mcpServers']
+                : [];
             $newConfig = $existingConfig;
-            $newConfig['mcpServers'] = $mcpServers;
+            $newConfig['mcpServers'] = array_merge($existingServers, $mcpServers);
 
             // 5. Write mcp.json
             $dir = dirname($cursorConfigPath);

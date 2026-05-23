@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 class CursorAuthController extends Controller
 {
@@ -26,6 +27,7 @@ class CursorAuthController extends Controller
     {
         return view("cursor-auth", [
             "status" => $this->getAuthenticationStatus(),
+            "uploadToken" => $this->createUploadToken(),
         ]);
     }
 
@@ -42,6 +44,17 @@ class CursorAuthController extends Controller
      */
     public function uploadJson(Request $request): JsonResponse
     {
+        if ($request->routeIs('cursor.auth.apiUpload')) {
+            $uploadToken = $request->input('upload_token');
+            if (!is_string($uploadToken) || $uploadToken === ''
+                || !Cache::pull('cursor_auth_upload:' . $uploadToken)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid or expired upload token. Open /cursor/auth and copy a fresh command.',
+                ], 403);
+            }
+        }
+
         $validator = Validator::make($request->all(), [
             "json" => "required|string",
         ]);
@@ -233,6 +246,17 @@ class CursorAuthController extends Controller
             'expires_in' => max(0, ($session['expires_at'] ?? 0) - time()),
             'error' => $session['error'] ?? null,
         ]);
+    }
+
+    /**
+     * One-time token for CSRF-exempt terminal upload (embedded in copied curl commands).
+     */
+    protected function createUploadToken(): string
+    {
+        $token = Str::random(64);
+        Cache::put('cursor_auth_upload:' . $token, true, 900);
+
+        return $token;
     }
 
     /**

@@ -55,6 +55,18 @@ class CursorAgentProvider extends AbstractCliProvider
         return 'cursor_agent';
     }
 
+    /**
+     * Ensure PocketDev rules file is removed on success, abort, and error paths.
+     */
+    public function streamMessage(Conversation $conversation, array $options = []): Generator
+    {
+        try {
+            yield from parent::streamMessage($conversation, $options);
+        } finally {
+            $this->cleanupPocketDevRulesFile();
+        }
+    }
+
     // ========================================================================
     // HasNativeSession implementation
     // ========================================================================
@@ -255,11 +267,6 @@ class CursorAgentProvider extends AbstractCliProvider
             'command' => $command,
             'stdin' => $userMessage,
         ];
-    }
-
-    protected function onProcessComplete(Conversation $conversation, array $state, int $exitCode): void
-    {
-        $this->cleanupPocketDevRulesFile();
     }
 
     protected function buildEnvironment(Conversation $conversation, array $options): array

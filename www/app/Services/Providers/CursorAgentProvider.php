@@ -24,10 +24,23 @@ use Illuminate\Support\Facades\Log;
  *   --resume <sessionId>     => --resume <chatId>
  *   --dangerously-skip-permissions => --force --trust
  *   --verbose                => --stream-partial-output
- *   --system-prompt          => (via stdin/workspace rules)
+ *   --system-prompt          => .cursor/rules/pocketdev-instructions.mdc (alwaysApply)
  */
 class CursorAgentProvider extends AbstractCliProvider
 {
+    /**
+     * Max bytes for PocketDev instructions written to .cursor/rules/.
+     * PocketDev prompts can be large (tools + memory + skills).
+     */
+    private const RULES_MAX_BYTES = 512_000;
+
+    private const RULES_FILENAME = 'pocketdev-instructions.mdc';
+
+    /**
+     * Path to the rules file written for the current run (for cleanup).
+     */
+    private ?string $rulesFilePath = null;
+
     public function __construct(ModelRepository $models)
     {
         parent::__construct($models);
@@ -186,14 +199,22 @@ class CursorAgentProvider extends AbstractCliProvider
             }
         }
 
+        // Ensure ~/.cursor directories are writable BEFORE syncing MCP config
+        // (syncMcpServersFromClaudeCode may create ~/.cursor with wrong permissions)
+        $home = getenv('HOME') ?: '/home/appuser';
+        $this->ensureCursorDirectories($home);
+
         // Sync MCP servers from Claude Code config to Cursor config
         $workingDir = $conversation->working_directory ?? '/workspace';
         $this->syncMcpServersFromClaudeCode($workingDir);
 
-        // Ensure ~/.cursor directories are writable by www-data (queue worker)
-        // The agent CLI creates project-specific state dirs under ~/.cursor/projects/
-        $home = getenv('HOME') ?: '/home/appuser';
-        $this->ensureCursorDirectories($home);
+        // Inject PocketDev system prompt (tools, memory, skills) via Cursor project rules.
+        // Unlike Claude Code (--system-prompt) the agent CLI has no flag; rules are the supported path.
+        if (!empty($options['system'])) {
+            $rulesDir = rtrim($workingDir, '/') . '/.cursor/rules';
+            $this->rulesFilePath = $rulesDir . '/' . self::RULES_FILENAME;
+            $this->writePocketDevRulesFile($this->rulesFilePath, $options['system']);
+        }
 
         // Use absolute path because the queue worker's PATH may not include ~/.local/bin
         $agentBin = $home . '/.local/bin/agent';
@@ -234,6 +255,11 @@ class CursorAgentProvider extends AbstractCliProvider
             'command' => $command,
             'stdin' => $userMessage,
         ];
+    }
+
+    protected function onProcessComplete(Conversation $conversation, array $state, int $exitCode): void
+    {
+        $this->cleanupPocketDevRulesFile();
     }
 
     protected function buildEnvironment(Conversation $conversation, array $options): array
@@ -687,16 +713,19 @@ class CursorAgentProvider extends AbstractCliProvider
         // If model doesn't support thinking, ignore the toggle
         $useThinking = $thinking && $hasThinking;
 
+        // Build effort suffix (empty string → no suffix to avoid trailing hyphens)
+        $effortSuffix = ($mappedEffort !== '') ? '-' . $mappedEffort : '';
+
         return match ($type) {
             // Opus 4.7 pattern: {base}-thinking-{level} or {base}-{level}
             'prefix_thinking' => $useThinking
-                ? $baseModel . '-thinking-' . $mappedEffort
-                : $baseModel . '-' . $mappedEffort,
+                ? $baseModel . '-thinking' . $effortSuffix
+                : $baseModel . $effortSuffix,
 
             // Opus 4.6 pattern: {base}-{level}-thinking or {base}-{level}
             'suffix_thinking' => $useThinking
-                ? $baseModel . '-' . $mappedEffort . '-thinking'
-                : $baseModel . '-' . $mappedEffort,
+                ? $baseModel . $effortSuffix . '-thinking'
+                : $baseModel . $effortSuffix,
 
             // Sonnet 4.5/4 pattern: {base}-thinking or {base}
             'toggle_thinking' => $useThinking
@@ -704,9 +733,7 @@ class CursorAgentProvider extends AbstractCliProvider
                 : $baseModel,
 
             // GPT pattern: {base}-{level} (no thinking toggle)
-            'suffix' => $mappedEffort === ''
-                ? $baseModel
-                : $baseModel . '-' . $mappedEffort,
+            'suffix' => $baseModel . $effortSuffix,
 
             default => $baseModel,
         };
@@ -856,7 +883,6 @@ class CursorAgentProvider extends AbstractCliProvider
             // Format: {"tool_call": {"shellToolCall": {..., "description": "..."}, ...}}
             $toolCall = $data['tool_call'] ?? [];
             $toolName = 'unknown';
-            $description = '';
             $inputJson = '{}';
 
             foreach ($toolCall as $key => $value) {
@@ -864,7 +890,6 @@ class CursorAgentProvider extends AbstractCliProvider
                     // Convert camelCase key to readable name (e.g., shellToolCall -> shell)
                     $toolName = str_replace('ToolCall', '', $key);
                     $toolName = str_replace('toolCall', '', $toolName) ?: $key;
-                    $description = $value['description'] ?? '';
 
                     // Extract relevant args for display
                     $args = $value['args'] ?? $value;
@@ -1150,6 +1175,66 @@ class CursorAgentProvider extends AbstractCliProvider
                     yield StreamEvent::toolResult($toolId, $resultContent, $isError);
                     break;
             }
+        }
+    }
+
+    // ========================================================================
+    // PocketDev instructions (system prompt → Cursor rules)
+    // ========================================================================
+
+    /**
+     * Write PocketDev system prompt as an always-on Cursor rule in the workspace.
+     */
+    private function writePocketDevRulesFile(string $file, string $content): void
+    {
+        $contentBytes = strlen($content);
+
+        if ($contentBytes > self::RULES_MAX_BYTES) {
+            $contentKb = round($contentBytes / 1024, 1);
+            $limitKb = round(self::RULES_MAX_BYTES / 1024, 1);
+
+            Log::channel('api')->error('CursorAgentProvider: System prompt exceeds size limit', [
+                'content_bytes' => $contentBytes,
+                'limit_bytes' => self::RULES_MAX_BYTES,
+                'file' => $file,
+            ]);
+
+            throw new \RuntimeException(
+                "System prompt too large for Cursor Agent ({$contentKb}KB exceeds {$limitKb}KB limit). " .
+                "Try reducing enabled tools, memory tables, or skills in PocketDev settings."
+            );
+        }
+
+        $dir = dirname($file);
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Failed to create Cursor rules directory: {$dir}");
+        }
+
+        $body = "---\n"
+            . "description: PocketDev tools, memory schemas, skills, and agent instructions\n"
+            . "alwaysApply: true\n"
+            . "---\n\n"
+            . $content;
+
+        if (file_put_contents($file, $body, LOCK_EX) === false) {
+            Log::channel('api')->error('CursorAgentProvider: Failed to write Cursor rules file', [
+                'file' => $file,
+            ]);
+            throw new \RuntimeException("Failed to write Cursor rules file: {$file}");
+        }
+
+        Log::channel('api')->info('CursorAgentProvider: Wrote PocketDev instructions to Cursor rules', [
+            'file' => $file,
+            'content_bytes' => $contentBytes,
+        ]);
+    }
+
+    private function cleanupPocketDevRulesFile(): void
+    {
+        $file = $this->rulesFilePath;
+        if ($file !== null && file_exists($file)) {
+            @unlink($file);
+            $this->rulesFilePath = null;
         }
     }
 

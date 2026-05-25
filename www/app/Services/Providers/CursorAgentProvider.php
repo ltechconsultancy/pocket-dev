@@ -721,7 +721,7 @@ class CursorAgentProvider extends AbstractCliProvider
         // Build effort suffix (empty string → no suffix to avoid trailing hyphens)
         $effortSuffix = ($mappedEffort !== '') ? '-' . $mappedEffort : '';
 
-        return match ($type) {
+        $resolved = match ($type) {
             // Opus 4.7 pattern: {base}-thinking-{level} or {base}-{level}
             'prefix_thinking' => $useThinking
                 ? $baseModel . '-thinking' . $effortSuffix

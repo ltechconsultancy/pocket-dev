@@ -204,9 +204,8 @@ class CursorAgentProvider extends AbstractCliProvider
         // Append -fast suffix if requested — verify the fast variant actually exists
         if ($fast && ($modelConfig['effort_variants']['has_fast'] ?? false)) {
             $fastModel = $resolvedModel . '-fast';
-            // Check against discovered models to avoid invalid combinations
             $allModels = self::getKnownModelIds();
-            if (empty($allModels) || isset($allModels[$fastModel])) {
+            if (!empty($allModels) && isset($allModels[$fastModel])) {
                 $resolvedModel = $fastModel;
             }
         }
@@ -538,8 +537,6 @@ class CursorAgentProvider extends AbstractCliProvider
                     }
                 }
 
-                $has1M = str_contains($variants[array_key_first($variants)] ?? '', '1M');
-
                 $models[] = [
                     'model_id'                      => $base,
                     'display_name'                  => $displayName,
@@ -745,6 +742,30 @@ class CursorAgentProvider extends AbstractCliProvider
 
             default => $baseModel,
         };
+
+        return $this->clampToKnownModelId($resolved, $baseModel);
+    }
+
+    /**
+     * When the CLI model list is available, fall back if the resolved ID does not exist.
+     */
+    private function clampToKnownModelId(string $resolved, string $baseModel): string
+    {
+        $known = self::getKnownModelIds();
+        if (empty($known) || isset($known[$resolved])) {
+            return $resolved;
+        }
+
+        if (isset($known[$baseModel])) {
+            Log::channel('api')->warning('CursorAgentProvider: Resolved model not in CLI list, using base', [
+                'resolved' => $resolved,
+                'base' => $baseModel,
+            ]);
+
+            return $baseModel;
+        }
+
+        return $resolved;
     }
 
     /**

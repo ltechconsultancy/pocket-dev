@@ -131,8 +131,9 @@ class StreamEvent
             'context_window_size' => $contextWindowSize,
         ], fn($v) => $v !== null);
 
-        // Context fill = prompt + completion tokens only (never billable cache read/write)
-        $contextInput = $contextInputTokens ?? max(0, $inputTokens - (int) ($cacheCreation ?? 0) - (int) ($cacheRead ?? 0));
+        // Context fill: use explicit context_* when provider supplies them (CLI providers).
+        // API providers pass input_tokens already excluding cache — do not subtract again.
+        $contextInput = $contextInputTokens ?? $inputTokens;
         $contextOutput = $contextOutputTokens ?? $outputTokens;
         $totalContext = $contextInput + $contextOutput;
 

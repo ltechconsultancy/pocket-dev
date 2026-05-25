@@ -997,7 +997,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         ?int $contextOutputTokens,
     ): array {
         $ctxOut = $contextOutputTokens ?? $outputTokens;
-        $ctxIn = $contextInputTokens ?? max(0, $inputTokens - (int) ($cacheCreationTokens ?? 0) - (int) ($cacheReadTokens ?? 0));
+        $ctxIn = $contextInputTokens ?? $inputTokens;
 
         return [$ctxIn, $ctxOut];
     }

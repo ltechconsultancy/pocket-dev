@@ -289,12 +289,19 @@ class ClaudeCodeProvider extends AbstractCliProvider
     protected function emitUsage(array $state): Generator
     {
         if ($state['totalCost'] !== null || $state['inputTokens'] > 0) {
+            $cacheCreate = (int) ($state['cacheCreationTokens'] ?? 0);
+            $cacheRead = (int) ($state['cacheReadTokens'] ?? 0);
+            $contextInput = max(0, $state['inputTokens'] - $cacheCreate - $cacheRead);
+
             yield StreamEvent::usage(
                 $state['inputTokens'],
                 $state['outputTokens'],
-                $state['cacheCreationTokens'] ?: null,
-                $state['cacheReadTokens'] ?: null,
-                $state['totalCost']
+                $cacheCreate > 0 ? $cacheCreate : null,
+                $cacheRead > 0 ? $cacheRead : null,
+                $state['totalCost'],
+                null,
+                $contextInput > 0 ? $contextInput : null,
+                $state['outputTokens'] > 0 ? $state['outputTokens'] : null
             );
         }
     }

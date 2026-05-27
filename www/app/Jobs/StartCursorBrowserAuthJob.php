@@ -76,7 +76,9 @@ class StartCursorBrowserAuthJob implements ShouldQueue
             // like /en/ or /en-US/) so an unrelated URL in CLI output (status page,
             // telemetry, docs link) doesn't get surfaced as the verification URL.
             if (!$verificationUrl) {
-                $authPath = '(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?(?:login|signin|signup|auth|cli|oauth|verify|callback)';
+                // Note: `cli` deliberately omitted — cursor.com/cli is a marketing/docs
+                // page, not an auth URL. Login URLs reliably contain login/auth/oauth.
+                $authPath = '(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?(?:login|signin|signup|auth|oauth|verify|callback)';
                 if (preg_match('/(https:\/\/(?:www\.)?cursor\.com\/' . $authPath . '\S*)/i', $text, $m)) {
                     $verificationUrl = rtrim($m[1], '.,)');
                 } elseif (preg_match('/(https:\/\/\S*cursor\S*auth\S+)/i', $text, $m)) {

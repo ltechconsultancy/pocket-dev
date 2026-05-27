@@ -103,8 +103,10 @@ class CursorAuthController extends Controller
             $bytes = file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
             if ($bytes === false) {
                 // Token is intentionally NOT consumed — user can retry without
-                // returning to /cursor/auth for a fresh command.
-                throw new \RuntimeException("Failed to write credentials file at {$this->credentialsPath}");
+                // returning to /cursor/auth for a fresh command. Path is logged
+                // server-side but kept out of the client response.
+                Log::error('[Cursor Auth] Write failed', ['path' => $this->credentialsPath]);
+                throw new \RuntimeException('Failed to write credentials file.');
             }
 
             // Try to set group-writable permissions (non-fatal if we're not the owner)
@@ -134,13 +136,15 @@ class CursorAuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            // Log full detail server-side; return a generic message so we don't
+            // leak filesystem paths or other internals to the client.
             Log::error("[Cursor Auth] Failed to save credentials from JSON", [
                 "error" => $e->getMessage(),
             ]);
 
             return response()->json([
                 "success" => false,
-                "message" => "Failed to save credentials: " . $e->getMessage(),
+                "message" => "Failed to save credentials.",
             ], 500);
         }
     }

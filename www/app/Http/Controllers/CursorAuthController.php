@@ -44,9 +44,10 @@ class CursorAuthController extends Controller
      */
     public function uploadJson(Request $request): JsonResponse
     {
-        // For terminal uploads, check the one-time token exists but DON'T consume it yet —
-        // a malformed paste would burn the token and force the user back to /cursor/auth
-        // for a fresh command. Consume only after validation passes.
+        // For terminal uploads, capture the token but defer consumption (Cache::pull)
+        // until validation passes — a malformed paste should NOT burn the token.
+        // Pulling after validation keeps one-shot semantics intact (no TOCTOU window
+        // where two concurrent requests both pass a `has` check).
         $isApiUpload = $request->routeIs('cursor.auth.apiUpload');
         $uploadTokenKey = null;
         if ($isApiUpload) {
@@ -91,23 +92,28 @@ class CursorAuthController extends Controller
                 ], 422);
             }
 
+            // Atomically consume the one-time token NOW that the payload is valid.
+            // If a concurrent request already pulled it, return the same 403 as a stale token.
+            if ($uploadTokenKey !== null && !Cache::pull($uploadTokenKey)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Upload token already used or expired. Open /cursor/auth for a fresh command.',
+                ], 403);
+            }
+
             // Create directory if it does not exist
             $dir = dirname($this->credentialsPath);
             if (!is_dir($dir)) {
                 mkdir($dir, 0770, true);
             }
 
-            // Save the file (LOCK_EX to avoid interleaving with a concurrent writer like `agent login`)
+            // Save the file. LOCK_EX serializes concurrent PHP writers; it does NOT
+            // coordinate with the `agent` CLI binary (which does not honor advisory locks).
             file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
 
             // Try to set group-writable permissions (non-fatal if we're not the owner)
             @chmod($dir, 0770);
             @chmod($this->credentialsPath, 0660);
-
-            // Consume the one-time token now that the write succeeded
-            if ($uploadTokenKey !== null) {
-                Cache::forget($uploadTokenKey);
-            }
 
             // New credentials may belong to a different account → drop cached model lists
             Cache::forget('cursor_agent:models');

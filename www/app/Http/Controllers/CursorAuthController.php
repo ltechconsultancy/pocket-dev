@@ -44,15 +44,21 @@ class CursorAuthController extends Controller
      */
     public function uploadJson(Request $request): JsonResponse
     {
-        if ($request->routeIs('cursor.auth.apiUpload')) {
+        // For terminal uploads, check the one-time token exists but DON'T consume it yet —
+        // a malformed paste would burn the token and force the user back to /cursor/auth
+        // for a fresh command. Consume only after validation passes.
+        $isApiUpload = $request->routeIs('cursor.auth.apiUpload');
+        $uploadTokenKey = null;
+        if ($isApiUpload) {
             $uploadToken = $request->input('upload_token');
             if (!is_string($uploadToken) || $uploadToken === ''
-                || !Cache::pull('cursor_auth_upload:' . $uploadToken)) {
+                || !Cache::has('cursor_auth_upload:' . $uploadToken)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Invalid or expired upload token. Open /cursor/auth and copy a fresh command.',
                 ], 403);
             }
+            $uploadTokenKey = 'cursor_auth_upload:' . $uploadToken;
         }
 
         $validator = Validator::make($request->all(), [
@@ -91,12 +97,21 @@ class CursorAuthController extends Controller
                 mkdir($dir, 0770, true);
             }
 
-            // Save the file
-            file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT));
+            // Save the file (LOCK_EX to avoid interleaving with a concurrent writer like `agent login`)
+            file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
 
             // Try to set group-writable permissions (non-fatal if we're not the owner)
             @chmod($dir, 0770);
             @chmod($this->credentialsPath, 0660);
+
+            // Consume the one-time token now that the write succeeded
+            if ($uploadTokenKey !== null) {
+                Cache::forget($uploadTokenKey);
+            }
+
+            // New credentials may belong to a different account → drop cached model lists
+            Cache::forget('cursor_agent:models');
+            Cache::forget('cursor_agent:all_model_ids');
 
             Log::info("[Cursor Auth] Credentials saved from JSON input");
 
@@ -141,6 +156,10 @@ class CursorAuthController extends Controller
             if ($settings->hasCursorAgentApiKey()) {
                 $settings->deleteCursorAgentApiKey();
             }
+
+            // Drop cached model lists — they're per-account and may change after re-auth
+            Cache::forget('cursor_agent:models');
+            Cache::forget('cursor_agent:all_model_ids');
 
             return response()->json([
                 "success" => true,

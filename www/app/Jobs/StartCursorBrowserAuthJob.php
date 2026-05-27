@@ -71,14 +71,13 @@ class StartCursorBrowserAuthJob implements ShouldQueue
             // Strip ANSI color codes
             $text = preg_replace('/\033\[[0-9;]*[mGKHF]/', '', $log);
 
-            // Look for Cursor login URL (challenge-based, no user code needed)
+            // Look for Cursor login URL (challenge-based, no user code needed).
+            // Restricted to cursor.com / *cursor*auth* hosts so a stray URL in CLI
+            // output (status page, telemetry, docs link) doesn't get sent to the user.
             if (!$verificationUrl) {
-                if (preg_match('/(https:\/\/(?:www\.)?cursor\.com\/login\S+)/i', $text, $m)) {
+                if (preg_match('/(https:\/\/(?:www\.)?cursor\.com\/\S+)/i', $text, $m)) {
                     $verificationUrl = rtrim($m[1], '.,)');
                 } elseif (preg_match('/(https:\/\/\S*cursor\S*auth\S+)/i', $text, $m)) {
-                    $verificationUrl = rtrim($m[1], '.,)');
-                } elseif (preg_match('/(https:\/\/\S+)/i', $text, $m)) {
-                    // Fallback: any HTTPS URL in the output
                     $verificationUrl = rtrim($m[1], '.,)');
                 }
             }

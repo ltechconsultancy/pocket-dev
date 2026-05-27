@@ -437,139 +437,153 @@ class CursorAgentProvider extends AbstractCliProvider
      */
     public static function discoverModels(): array
     {
-        return Cache::remember('cursor_agent:models', 3600, function () {
-            $home = getenv('HOME') ?: '/home/appuser';
-            $agentBin = $home . '/.local/bin/agent';
-            if (!file_exists($agentBin)) {
-                $agentBin = 'agent';
-            }
+        $cached = Cache::get('cursor_agent:models');
+        if (is_array($cached) && !empty($cached)) {
+            return $cached;
+        }
 
-            $output = shell_exec($agentBin . ' models 2>&1');
-            if ($output === null) {
-                Log::warning('cursor_agent: Failed to run agent models');
-                return [];
-            }
+        $models = self::buildDiscoveredModels();
 
-            // Parse "model_id - Display Name" lines
-            $rawModels = [];
-            foreach (explode("\n", $output) as $line) {
-                $line = trim($line);
-                if (str_contains($line, ' - ') && !str_starts_with($line, 'Available') && !str_starts_with($line, 'Tip:')) {
-                    [$id, $name] = explode(' - ', $line, 2);
-                    $id = trim($id);
-                    $name = trim(str_replace([' (current)', ' (default)'], '', $name));
-                    $rawModels[$id] = $name;
+        if (!empty($models)) {
+            Cache::put('cursor_agent:models', $models, 3600);
+        }
+
+        return $models;
+    }
+
+    private static function buildDiscoveredModels(): array
+    {
+        $home = getenv('HOME') ?: '/home/appuser';
+        $agentBin = $home . '/.local/bin/agent';
+        if (!file_exists($agentBin)) {
+            $agentBin = 'agent';
+        }
+
+        $output = shell_exec($agentBin . ' models 2>&1');
+        if ($output === null) {
+            Log::warning('cursor_agent: Failed to run agent models');
+            return [];
+        }
+
+        // Parse "model_id - Display Name" lines
+        $rawModels = [];
+        foreach (explode("\n", $output) as $line) {
+            $line = trim($line);
+            if (str_contains($line, ' - ') && !str_starts_with($line, 'Available') && !str_starts_with($line, 'Tip:')) {
+                [$id, $name] = explode(' - ', $line, 2);
+                $id = trim($id);
+                $name = trim(str_replace([' (current)', ' (default)'], '', $name));
+                $rawModels[$id] = $name;
+            }
+        }
+
+        if (empty($rawModels)) {
+            return [];
+        }
+
+        // Group into base families by stripping known suffixes
+        $families = [];
+        foreach ($rawModels as $id => $name) {
+            $base = self::extractBaseModel($id);
+            if (!isset($families[$base])) {
+                $families[$base] = ['variants' => [], 'display' => null];
+            }
+            $families[$base]['variants'][$id] = $name;
+        }
+
+        // Build model configs for each family
+        $models = [];
+        foreach ($families as $base => $family) {
+            $variants = $family['variants'];
+            $variantIds = array_keys($variants);
+
+            // Determine thinking support (has both X and X-thinking variants)
+            $hasThinking = false;
+            $hasFast = false;
+            foreach ($variantIds as $vid) {
+                if (str_contains($vid, 'thinking')) {
+                    $hasThinking = true;
+                }
+                if (str_ends_with($vid, '-fast')) {
+                    $hasFast = true;
                 }
             }
 
-            if (empty($rawModels)) {
-                return [];
+            // Determine effort levels
+            $effortLevels = self::inferEffortLevels($base, $variantIds);
+            $type = self::inferVariantType($base, $variantIds, $hasThinking);
+
+            // Pick display name from the "default" variant
+            $displayName = $variants[$base]
+                ?? $variants[array_key_first($variants)]
+                ?? ucwords(str_replace('-', ' ', $base));
+            // Clean display name: remove effort/thinking suffixes
+            $displayName = preg_replace('/\s*(Low|Medium|High|Extra High|Max|Thinking|Fast|None|1M)\s*/i', ' ', $displayName);
+            $displayName = trim(preg_replace('/\s+/', ' ', $displayName));
+            if (empty($displayName)) {
+                $displayName = ucwords(str_replace('-', ' ', $base));
             }
 
-            // Group into base families by stripping known suffixes
-            $families = [];
-            foreach ($rawModels as $id => $name) {
-                $base = self::extractBaseModel($id);
-                if (!isset($families[$base])) {
-                    $families[$base] = ['variants' => [], 'display' => null];
-                }
-                $families[$base]['variants'][$id] = $name;
-            }
-
-            // Build model configs for each family
-            $models = [];
-            foreach ($families as $base => $family) {
-                $variants = $family['variants'];
-                $variantIds = array_keys($variants);
-
-                // Determine thinking support (has both X and X-thinking variants)
-                $hasThinking = false;
-                $hasFast = false;
-                foreach ($variantIds as $vid) {
-                    if (str_contains($vid, 'thinking')) {
-                        $hasThinking = true;
-                    }
-                    if (str_ends_with($vid, '-fast')) {
-                        $hasFast = true;
-                    }
-                }
-
-                // Determine effort levels
-                $effortLevels = self::inferEffortLevels($base, $variantIds);
-                $type = self::inferVariantType($base, $variantIds, $hasThinking);
-
-                // Pick display name from the "default" variant
-                $displayName = $variants[$base]
-                    ?? $variants[array_key_first($variants)]
-                    ?? ucwords(str_replace('-', ' ', $base));
-                // Clean display name: remove effort/thinking suffixes
-                $displayName = preg_replace('/\s*(Low|Medium|High|Extra High|Max|Thinking|Fast|None|1M)\s*/i', ' ', $displayName);
-                $displayName = trim(preg_replace('/\s+/', ' ', $displayName));
-                if (empty($displayName)) {
-                    $displayName = ucwords(str_replace('-', ' ', $base));
-                }
-
-                $effortVariants = null;
-                if (!empty($effortLevels) || $hasThinking || $hasFast) {
-                    // Only set type if there are actual effort levels or thinking;
-                    // fast-only models (like composer) just need has_fast flag
-                    $effectiveType = (!empty($effortLevels) || $hasThinking) ? $type : 'none';
-                    $effortVariants = [
-                        'type' => $effectiveType,
-                        'has_thinking' => $hasThinking,
-                        'has_fast' => $hasFast,
-                    ];
-                    if (!empty($effortLevels)) {
-                        $effortVariants['levels'] = $effortLevels;
-                        $effortVariants['default'] = in_array('high', $effortLevels) ? 'high'
-                            : (in_array('medium', $effortLevels) ? 'medium' : $effortLevels[0]);
-                        // Map xhigh → extra-high for GPT-5.5
-                        if (in_array('extra-high', $effortLevels)) {
-                            $effortVariants['level_map'] = ['xhigh' => 'extra-high'];
-                        }
-                        // Map medium → '' for models where base = default (gpt-5.2, gpt-5.3-codex etc.)
-                        if (isset($rawModels[$base]) && !isset($rawModels[$base . '-medium'])) {
-                            $effortVariants['level_map'] = array_merge(
-                                $effortVariants['level_map'] ?? [],
-                                ['medium' => '']
-                            );
-                        }
-                    }
-                }
-
-                $models[] = [
-                    'model_id'                      => $base,
-                    'display_name'                  => $displayName,
-                    'effort_variants'               => $effortVariants,
-                    'context_window'                => 200000,
-                    'max_context_window'            => 200000,
-                    'max_output_tokens'             => str_contains($base, 'opus') ? 128000 : 64000,
-                    'input_price_per_million'       => null,
-                    'output_price_per_million'      => null,
-                    'cache_write_price_per_million' => null,
-                    'cache_read_price_per_million'  => null,
+            $effortVariants = null;
+            if (!empty($effortLevels) || $hasThinking || $hasFast) {
+                // Only set type if there are actual effort levels or thinking;
+                // fast-only models (like composer) just need has_fast flag
+                $effectiveType = (!empty($effortLevels) || $hasThinking) ? $type : 'none';
+                $effortVariants = [
+                    'type' => $effectiveType,
+                    'has_thinking' => $hasThinking,
+                    'has_fast' => $hasFast,
                 ];
+                if (!empty($effortLevels)) {
+                    $effortVariants['levels'] = $effortLevels;
+                    $effortVariants['default'] = in_array('high', $effortLevels) ? 'high'
+                        : (in_array('medium', $effortLevels) ? 'medium' : $effortLevels[0]);
+                    // Map xhigh → extra-high for GPT-5.5
+                    if (in_array('extra-high', $effortLevels)) {
+                        $effortVariants['level_map'] = ['xhigh' => 'extra-high'];
+                    }
+                    // Map medium → '' for models where base = default (gpt-5.2, gpt-5.3-codex etc.)
+                    if (isset($rawModels[$base]) && !isset($rawModels[$base . '-medium'])) {
+                        $effortVariants['level_map'] = array_merge(
+                            $effortVariants['level_map'] ?? [],
+                            ['medium' => '']
+                        );
+                    }
+                }
             }
 
-            // Sort: auto first, then Claude, then GPT, then others
-            usort($models, function ($a, $b) {
-                $order = fn($id) => match (true) {
-                    $id === 'auto' => 0,
-                    str_starts_with($id, 'claude-opus-4-7') => 1,
-                    str_starts_with($id, 'claude') => 2,
-                    str_starts_with($id, 'gpt-5.5') => 3,
-                    str_starts_with($id, 'gpt-5.4') && !str_contains($id, 'mini') && !str_contains($id, 'nano') => 4,
-                    str_starts_with($id, 'gpt') => 5,
-                    str_starts_with($id, 'composer') => 8,
-                    default => 6,
-                };
-                return $order($a['model_id']) <=> $order($b['model_id']);
-            });
+            $models[] = [
+                'model_id'                      => $base,
+                'display_name'                  => $displayName,
+                'effort_variants'               => $effortVariants,
+                'context_window'                => 200000,
+                'max_context_window'            => 200000,
+                'max_output_tokens'             => str_contains($base, 'opus') ? 128000 : 64000,
+                'input_price_per_million'       => null,
+                'output_price_per_million'      => null,
+                'cache_write_price_per_million' => null,
+                'cache_read_price_per_million'  => null,
+            ];
+        }
 
-            Log::info('cursor_agent: Discovered ' . count($models) . ' model families from CLI');
-
-            return $models;
+        // Sort: auto first, then Claude, then GPT, then others
+        usort($models, function ($a, $b) {
+            $order = fn($id) => match (true) {
+                $id === 'auto' => 0,
+                str_starts_with($id, 'claude-opus-4-7') => 1,
+                str_starts_with($id, 'claude') => 2,
+                str_starts_with($id, 'gpt-5.5') => 3,
+                str_starts_with($id, 'gpt-5.4') && !str_contains($id, 'mini') && !str_contains($id, 'nano') => 4,
+                str_starts_with($id, 'gpt') => 5,
+                str_starts_with($id, 'composer') => 8,
+                default => 6,
+            };
+            return $order($a['model_id']) <=> $order($b['model_id']);
         });
+
+        Log::info('cursor_agent: Discovered ' . count($models) . ' model families from CLI');
+
+        return $models;
     }
 
     /**
@@ -578,28 +592,36 @@ class CursorAgentProvider extends AbstractCliProvider
      */
     private static function getKnownModelIds(): array
     {
-        return Cache::remember('cursor_agent:all_model_ids', 3600, function () {
-            $home = getenv('HOME') ?: '/home/appuser';
-            $agentBin = $home . '/.local/bin/agent';
-            if (!file_exists($agentBin)) {
-                $agentBin = 'agent';
-            }
+        $cached = Cache::get('cursor_agent:all_model_ids');
+        if (is_array($cached) && !empty($cached)) {
+            return $cached;
+        }
 
-            $output = shell_exec($agentBin . ' models 2>&1');
-            if ($output === null) {
-                return [];
-            }
+        $home = getenv('HOME') ?: '/home/appuser';
+        $agentBin = $home . '/.local/bin/agent';
+        if (!file_exists($agentBin)) {
+            $agentBin = 'agent';
+        }
 
-            $ids = [];
-            foreach (explode("\n", $output) as $line) {
-                $line = trim($line);
-                if (str_contains($line, ' - ') && !str_starts_with($line, 'Available') && !str_starts_with($line, 'Tip:')) {
-                    [$id] = explode(' - ', $line, 2);
-                    $ids[trim($id)] = true;
-                }
+        $output = shell_exec($agentBin . ' models 2>&1');
+        if ($output === null) {
+            return [];
+        }
+
+        $ids = [];
+        foreach (explode("\n", $output) as $line) {
+            $line = trim($line);
+            if (str_contains($line, ' - ') && !str_starts_with($line, 'Available') && !str_starts_with($line, 'Tip:')) {
+                [$id] = explode(' - ', $line, 2);
+                $ids[trim($id)] = true;
             }
-            return $ids;
-        });
+        }
+
+        if (!empty($ids)) {
+            Cache::put('cursor_agent:all_model_ids', $ids, 3600);
+        }
+
+        return $ids;
     }
 
     /**

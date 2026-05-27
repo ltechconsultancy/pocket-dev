@@ -92,15 +92,6 @@ class CursorAuthController extends Controller
                 ], 422);
             }
 
-            // Atomically consume the one-time token NOW that the payload is valid.
-            // If a concurrent request already pulled it, return the same 403 as a stale token.
-            if ($uploadTokenKey !== null && !Cache::pull($uploadTokenKey)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Upload token already used or expired. Open /cursor/auth for a fresh command.',
-                ], 403);
-            }
-
             // Create directory if it does not exist
             $dir = dirname($this->credentialsPath);
             if (!is_dir($dir)) {
@@ -109,11 +100,26 @@ class CursorAuthController extends Controller
 
             // Save the file. LOCK_EX serializes concurrent PHP writers; it does NOT
             // coordinate with the `agent` CLI binary (which does not honor advisory locks).
-            file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+            $bytes = file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+            if ($bytes === false) {
+                // Token is intentionally NOT consumed — user can retry without
+                // returning to /cursor/auth for a fresh command.
+                throw new \RuntimeException("Failed to write credentials file at {$this->credentialsPath}");
+            }
 
             // Try to set group-writable permissions (non-fatal if we're not the owner)
             @chmod($dir, 0770);
             @chmod($this->credentialsPath, 0660);
+
+            // Atomically consume the one-time token only after the write succeeded.
+            // If a concurrent request already pulled it, surface the same 403 — the
+            // file write was a no-op duplicate (LOCK_EX serialized us with them).
+            if ($uploadTokenKey !== null && !Cache::pull($uploadTokenKey)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Upload token already used. The credentials were saved by a concurrent request.',
+                ], 403);
+            }
 
             // New credentials may belong to a different account → drop cached model lists
             Cache::forget('cursor_agent:models');

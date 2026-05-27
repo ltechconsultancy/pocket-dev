@@ -72,11 +72,12 @@ class StartCursorBrowserAuthJob implements ShouldQueue
             $text = preg_replace('/\033\[[0-9;]*[mGKHF]/', '', $log);
 
             // Look for Cursor login URL (challenge-based, no user code needed).
-            // Scoped to cursor.com auth paths so an unrelated URL in CLI output
-            // (status page, telemetry, docs link) doesn't get surfaced as the
-            // verification URL.
+            // Scoped to cursor.com auth-related paths (with optional locale prefix
+            // like /en/ or /en-US/) so an unrelated URL in CLI output (status page,
+            // telemetry, docs link) doesn't get surfaced as the verification URL.
             if (!$verificationUrl) {
-                if (preg_match('/(https:\/\/(?:www\.)?cursor\.com\/(?:login|auth|cli|oauth|signin)\S*)/i', $text, $m)) {
+                $authPath = '(?:[a-z]{2}(?:-[A-Za-z]{2})?\/)?(?:login|signin|signup|auth|cli|oauth|verify|callback)';
+                if (preg_match('/(https:\/\/(?:www\.)?cursor\.com\/' . $authPath . '\S*)/i', $text, $m)) {
                     $verificationUrl = rtrim($m[1], '.,)');
                 } elseif (preg_match('/(https:\/\/\S*cursor\S*auth\S+)/i', $text, $m)) {
                     $verificationUrl = rtrim($m[1], '.,)');

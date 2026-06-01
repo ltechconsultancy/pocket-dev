@@ -1,11 +1,10 @@
-# PocketDev for Coolify (Docker Compose build pack — not Raw Compose).
+# PocketDev for Coolify — GitHub app, build from repo (no GHCR pull).
 #
-# Coolify: Resource → Docker Compose → deploy/compose.coolify.yml
-# Do NOT define custom networks (Coolify attaches Traefik to its own network).
-# Set FQDN on pocket-dev-nginx → container port 80 (no host ports, no Traefik labels here).
+# Coolify: Docker Compose (not Raw) → compose file: deploy/compose.coolify.yml
+# FQDN on pocket-dev-nginx → port 80. No custom networks. No Traefik labels here.
+# Env: Coolify → Environment tab (or ./setup-coolify.sh). No .env file bind mount.
 #
-# Required in Coolify Environment: PD_APP_KEY, PD_DB_* passwords, PD_APP_URL, PD_IMAGE_OWNER, PD_IMAGE_TAG
-# Generate locally: ./setup-coolify.sh --domain=pocketdev.example.com
+# Build context ".." = repository root (this file is in deploy/).
 
 x-pocketdev-env: &pocketdev-env
   PD_APP_KEY: ${PD_APP_KEY:?set PD_APP_KEY}
@@ -27,14 +26,15 @@ x-pocketdev-env: &pocketdev-env
   PD_REDIS_CLIENT: ${PD_REDIS_CLIENT:-predis}
   PD_REDIS_HOST: ${PD_REDIS_HOST:-pocket-dev-redis}
   PD_REDIS_PORT: ${PD_REDIS_PORT:-6379}
-  PD_DOCKER_GID: ${PD_DOCKER_GID:-}
+  PD_DOCKER_GID: ${PD_DOCKER_GID:?set PD_DOCKER_GID}
   PD_USER_ID: ${PD_USER_ID:-1000}
   PD_GROUP_ID: ${PD_GROUP_ID:-1000}
 
 services:
   pocket-dev-php:
-    image: ghcr.io/${PD_IMAGE_OWNER:?set PD_IMAGE_OWNER}/pocket-dev-php:${PD_IMAGE_TAG:?set PD_IMAGE_TAG}
-    pull_policy: always
+    build:
+      context: ..
+      dockerfile: docker-laravel/production/php/Dockerfile
     restart: unless-stopped
     working_dir: /var/www
     environment:
@@ -59,11 +59,12 @@ services:
       interval: 15s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 90s
 
   pocket-dev-nginx:
-    image: ghcr.io/${PD_IMAGE_OWNER}/pocket-dev-nginx:${PD_IMAGE_TAG}
-    pull_policy: always
+    build:
+      context: ..
+      dockerfile: docker-laravel/production/nginx/Dockerfile
     restart: unless-stopped
     expose:
       - "80"
@@ -75,16 +76,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
 
   pocket-dev-postgres:
-    image: ghcr.io/${PD_IMAGE_OWNER}/pocket-dev-postgres:${PD_IMAGE_TAG}
-    pull_policy: always
+    build:
+      context: ..
+      dockerfile: docker-postgres/Dockerfile
     restart: unless-stopped
     environment:
       POSTGRES_DB: pocket-dev
       POSTGRES_USER: pocket-dev
-      POSTGRES_PASSWORD: ${PD_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${PD_DB_PASSWORD:?set PD_DB_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -108,8 +110,9 @@ services:
       start_period: 5s
 
   pocket-dev-queue:
-    image: ghcr.io/${PD_IMAGE_OWNER}/pocket-dev-php:${PD_IMAGE_TAG}
-    pull_policy: always
+    build:
+      context: ..
+      dockerfile: docker-laravel/production/php/Dockerfile
     restart: unless-stopped
     working_dir: /var/www
     entrypoint: ["/queue-entrypoint.sh"]
@@ -137,24 +140,18 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 90s
 
 volumes:
   postgres-data:
     name: ${PD_PROJECT_NAME:-pocket-dev}-postgres
-    driver: local
   redis-data:
     name: ${PD_PROJECT_NAME:-pocket-dev}-redis
-    driver: local
   workspace-data:
     name: ${PD_PROJECT_NAME:-pocket-dev}-workspace
-    driver: local
   user-data:
     name: ${PD_PROJECT_NAME:-pocket-dev}-user
-    driver: local
   pocketdev-storage:
     name: ${PD_PROJECT_NAME:-pocket-dev}-storage
-    driver: local
   shared-tmp:
     name: ${PD_PROJECT_NAME:-pocket-dev}-shared-tmp
-    driver: local

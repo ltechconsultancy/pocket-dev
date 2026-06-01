@@ -67,11 +67,21 @@ Required:
 5. Paste environment from `setup-coolify.sh`
 6. **Deploy** (builds php, nginx, postgres from repo)
 
-## 4. Domain (TLS)
+## 4. Domain (TLS) — only nginx
 
-1. Resource → service **`pocket-dev-nginx`**
-2. **FQDN:** `https://pocketdev.example.com`
-3. **Port:** `80`
+Coolify may show a domain field **per service**. PocketDev needs **one public URL**; only nginx serves HTTP.
+
+| Service | Domain in Coolify |
+|---------|-------------------|
+| **pocket-dev-nginx** | `https://jouwdomein.nl` (port **80**) |
+| pocket-dev-php | **leave empty** |
+| pocket-dev-postgres | **leave empty** |
+| pocket-dev-queue | **leave empty** |
+| pocket-dev-redis | **leave empty** (if shown) |
+
+php/postgres/redis/queue talk over the internal Docker network — never expose them on Traefik.
+
+Set `PD_APP_URL` and `PD_DOMAIN_NAME` to the **same** hostname as nginx.
 
 ## 5. Traefik timeouts & uploads
 

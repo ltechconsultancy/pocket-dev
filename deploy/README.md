@@ -4,7 +4,7 @@ Pre-built Docker Compose configuration for production deployment.
 
 ## Coolify
 
-To run on a [Coolify](https://coolify.io) server (Traefik SSL, no proxy-nginx), use [`compose.coolify.yml`](compose.coolify.yml) and follow [`COOLIFY.md`](COOLIFY.md).
+Deploy on [Coolify](https://coolify.io) with compose path **`deploy/compose.coolify.yml`** (pre-built GHCR images). See [`COOLIFY.md`](COOLIFY.md). Generate env: `./setup-coolify.sh --domain=your.domain` (not `setup.sh`).
 
 ## Quick Start
 
@@ -110,7 +110,8 @@ docker exec proxy-nginx /scripts/domain.sh list
 | File | Purpose |
 |------|---------|
 | `compose.yml` | Main Docker Compose configuration |
-| `compose.coolify.yml` | Coolify / Traefik deployment |
+| `compose.coolify.yml` | Coolify / Traefik stack (GHCR images) |
+| `setup-coolify.sh` | Generate Coolify environment (secrets + domain) |
 | `compose.override.yml` | Proxy-nginx integration (auto-generated) |
 | `COOLIFY.md` | Coolify setup guide |
 | `.env` | Environment configuration |

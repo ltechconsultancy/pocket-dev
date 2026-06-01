@@ -1,33 +1,54 @@
-# PocketDev stack for Coolify (Traefik terminates TLS; no proxy-nginx).
+# PocketDev for Coolify (Docker Compose build pack — not Raw Compose).
 #
-# Coolify: New Resource → Docker Compose → compose file: deploy/compose.coolify.yml
-# Assign FQDN on service pocket-dev-nginx → container port 80.
+# Coolify: Resource → Docker Compose → deploy/compose.coolify.yml
+# Do NOT define custom networks (Coolify attaches Traefik to its own network).
+# Set FQDN on pocket-dev-nginx → container port 80 (no host ports, no Traefik labels here).
 #
-# Images: ghcr.io/${PD_IMAGE_OWNER}/pocket-dev-* (default: ltechconsultancy).
-# Until your fork publishes GHCR images, set PD_IMAGE_OWNER=tetrixdev and pin PD_IMAGE_TAG.
+# Required in Coolify Environment: PD_APP_KEY, PD_DB_* passwords, PD_APP_URL, PD_IMAGE_OWNER, PD_IMAGE_TAG
+# Generate locally: ./setup-coolify.sh --domain=pocketdev.example.com
+
+x-pocketdev-env: &pocketdev-env
+  PD_APP_KEY: ${PD_APP_KEY:?set PD_APP_KEY}
+  PD_APP_ENV: ${PD_APP_ENV:-production}
+  PD_APP_DEBUG: ${PD_APP_DEBUG:-false}
+  PD_APP_URL: ${PD_APP_URL:?set PD_APP_URL}
+  PD_FORCE_HTTPS: ${PD_FORCE_HTTPS:-true}
+  PD_DOMAIN_NAME: ${PD_DOMAIN_NAME:-localhost}
+  PD_DEPLOYMENT_MODE: ${PD_DEPLOYMENT_MODE:-production}
+  PD_PROJECT_NAME: ${PD_PROJECT_NAME:-pocket-dev}
+  PD_DB_CONNECTION: ${PD_DB_CONNECTION:-pgsql}
+  PD_DB_HOST: ${PD_DB_HOST:-pocket-dev-postgres}
+  PD_DB_PORT: ${PD_DB_PORT:-5432}
+  PD_DB_DATABASE: ${PD_DB_DATABASE:-pocket-dev}
+  PD_DB_USERNAME: ${PD_DB_USERNAME:-pocket-dev}
+  PD_DB_PASSWORD: ${PD_DB_PASSWORD:?set PD_DB_PASSWORD}
+  PD_DB_READONLY_PASSWORD: ${PD_DB_READONLY_PASSWORD:?set PD_DB_READONLY_PASSWORD}
+  PD_DB_MEMORY_AI_PASSWORD: ${PD_DB_MEMORY_AI_PASSWORD:?set PD_DB_MEMORY_AI_PASSWORD}
+  PD_REDIS_CLIENT: ${PD_REDIS_CLIENT:-predis}
+  PD_REDIS_HOST: ${PD_REDIS_HOST:-pocket-dev-redis}
+  PD_REDIS_PORT: ${PD_REDIS_PORT:-6379}
+  PD_DOCKER_GID: ${PD_DOCKER_GID:-}
+  PD_USER_ID: ${PD_USER_ID:-1000}
+  PD_GROUP_ID: ${PD_GROUP_ID:-1000}
 
 services:
   pocket-dev-php:
-    image: ghcr.io/${PD_IMAGE_OWNER:-ltechconsultancy}/pocket-dev-php:${PD_IMAGE_TAG:-latest}
+    image: ghcr.io/${PD_IMAGE_OWNER:?set PD_IMAGE_OWNER}/pocket-dev-php:${PD_IMAGE_TAG:?set PD_IMAGE_TAG}
     pull_policy: always
     restart: unless-stopped
     working_dir: /var/www
     environment:
-      - HOME=/home/appuser
-      - PD_TARGET_UID=${PD_USER_ID:-1000}
-      - PD_TARGET_GID=${PD_GROUP_ID:-1000}
-      - PD_HOST_PROJECT_PATH=${PD_HOST_PROJECT_PATH:-${PWD}}
-      - PD_DOCKER_GID=${PD_DOCKER_GID:-}
-      - PD_PROJECT_NAME=${PD_PROJECT_NAME:-pocket-dev}
+      <<: *pocketdev-env
+      HOME: /home/appuser
+      PD_TARGET_UID: ${PD_USER_ID:-1000}
+      PD_TARGET_GID: ${PD_GROUP_ID:-1000}
+      PD_HOST_PROJECT_PATH: ${PD_HOST_PROJECT_PATH:-${PWD}}
     volumes:
-      - .env:/var/www/.env
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
       - shared-tmp:/tmp
       - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - pocket-dev
     depends_on:
       pocket-dev-postgres:
         condition: service_healthy
@@ -41,13 +62,11 @@ services:
       start_period: 30s
 
   pocket-dev-nginx:
-    image: ghcr.io/${PD_IMAGE_OWNER:-ltechconsultancy}/pocket-dev-nginx:${PD_IMAGE_TAG:-latest}
+    image: ghcr.io/${PD_IMAGE_OWNER}/pocket-dev-nginx:${PD_IMAGE_TAG}
     pull_policy: always
     restart: unless-stopped
     expose:
       - "80"
-    networks:
-      - pocket-dev
     depends_on:
       pocket-dev-php:
         condition: service_healthy
@@ -57,23 +76,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    labels:
-      - coolify.managed=true
-      - traefik.enable=true
-      - traefik.http.services.pocket-dev-nginx.loadbalancer.server.port=80
 
   pocket-dev-postgres:
-    image: ghcr.io/${PD_IMAGE_OWNER:-ltechconsultancy}/pocket-dev-postgres:${PD_IMAGE_TAG:-latest}
+    image: ghcr.io/${PD_IMAGE_OWNER}/pocket-dev-postgres:${PD_IMAGE_TAG}
     pull_policy: always
     restart: unless-stopped
     environment:
       POSTGRES_DB: pocket-dev
       POSTGRES_USER: pocket-dev
-      POSTGRES_PASSWORD: "${PD_DB_PASSWORD}"
+      POSTGRES_PASSWORD: ${PD_DB_PASSWORD}
     volumes:
       - postgres-data:/var/lib/postgresql/data
-    networks:
-      - pocket-dev
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U pocket-dev -d pocket-dev"]
       interval: 10s
@@ -87,8 +100,6 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
-    networks:
-      - pocket-dev
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -97,44 +108,36 @@ services:
       start_period: 5s
 
   pocket-dev-queue:
-    image: ghcr.io/${PD_IMAGE_OWNER:-ltechconsultancy}/pocket-dev-php:${PD_IMAGE_TAG:-latest}
+    image: ghcr.io/${PD_IMAGE_OWNER}/pocket-dev-php:${PD_IMAGE_TAG}
     pull_policy: always
     restart: unless-stopped
     working_dir: /var/www
     entrypoint: ["/queue-entrypoint.sh"]
+    environment:
+      <<: *pocketdev-env
+      HOME: /home/appuser
+      PD_TARGET_UID: ${PD_USER_ID:-1000}
+      PD_TARGET_GID: ${PD_GROUP_ID:-1000}
+      PD_HOST_PROJECT_PATH: ${PD_HOST_PROJECT_PATH:-${PWD}}
+      CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
+      PD_QUEUE_WORKERS: ${PD_QUEUE_WORKERS:-8}
+    volumes:
+      - user-data:/home/appuser
+      - workspace-data:/workspace
+      - pocketdev-storage:/var/www/storage/pocketdev
+      - shared-tmp:/tmp
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      pocket-dev-redis:
+        condition: service_healthy
+      pocket-dev-postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "supervisorctl -c /etc/supervisor/conf.d/queue-workers.conf status | awk 'BEGIN{ok=1;count=0;sched=0} /^queue-worker_/ {count++; if ($2 != \"RUNNING\") ok=0} /^scheduler/ {sched++; if ($2 != \"RUNNING\") ok=0} END{if (count==0) ok=0; if (sched==0) ok=0; exit !ok}'"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    environment:
-      - HOME=/home/appuser
-      - PD_TARGET_UID=${PD_USER_ID:-1000}
-      - PD_TARGET_GID=${PD_GROUP_ID:-1000}
-      - PD_HOST_PROJECT_PATH=${PD_HOST_PROJECT_PATH:-${PWD}}
-      - PD_DOCKER_GID=${PD_DOCKER_GID:-}
-      - PD_PROJECT_NAME=${PD_PROJECT_NAME:-pocket-dev}
-      - CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION:-}
-      - PD_QUEUE_WORKERS=${PD_QUEUE_WORKERS:-8}
-    volumes:
-      - .env:/var/www/.env
-      - user-data:/home/appuser
-      - workspace-data:/workspace
-      - pocketdev-storage:/var/www/storage/pocketdev
-      - shared-tmp:/tmp
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - pocket-dev
-    depends_on:
-      pocket-dev-redis:
-        condition: service_healthy
-      pocket-dev-postgres:
-        condition: service_healthy
-
-networks:
-  pocket-dev:
-    driver: bridge
 
 volumes:
   postgres-data:

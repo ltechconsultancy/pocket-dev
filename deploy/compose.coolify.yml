@@ -55,12 +55,12 @@ services:
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
       - type: volume
-        source: shared-tmp
+        source: shared-tmp-data
         target: /tmp/pocketdev
         volume:
           subpath: pocketdev
       - type: volume
-        source: shared-tmp
+        source: shared-tmp-data
         target: /tmp/pocketdev-uploads
         volume:
           subpath: pocketdev-uploads
@@ -154,12 +154,12 @@ services:
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
       - type: volume
-        source: shared-tmp
+        source: shared-tmp-data
         target: /tmp/pocketdev
         volume:
           subpath: pocketdev
       - type: volume
-        source: shared-tmp
+        source: shared-tmp-data
         target: /tmp/pocketdev-uploads
         volume:
           subpath: pocketdev-uploads
@@ -187,5 +187,6 @@ volumes:
     name: ${PD_PROJECT_NAME:-pocket-dev}-user
   pocketdev-storage:
     name: ${PD_PROJECT_NAME:-pocket-dev}-storage
-  shared-tmp:
-    name: ${PD_PROJECT_NAME:-pocket-dev}-shared-tmp
+  # Renamed from shared-tmp (v1 had node-compile-cache file conflict on Coolify).
+  shared-tmp-data:
+    name: ${PD_PROJECT_NAME:-pocket-dev}-shared-tmp-v2

@@ -34,13 +34,15 @@ Coolify checks out the repo and builds (first deploy may take 10–20 min):
 | nginx | `docker-laravel/production/nginx/Dockerfile` |
 | postgres | `docker-postgres/Dockerfile` |
 
-Build context is repo root (`context: ..` relative to `deploy/`).
+Build context is repo root (`context: .` with Coolify **Base Directory** `/`). Coolify runs Compose with `--project-directory` set to the cloned repository root, not `deploy/`.
 
 `PD_IMAGE_OWNER` / `PD_IMAGE_TAG` are **not used** by `compose.coolify.yml`. For GHCR pull-only deploys, use [`compose.yml`](compose.yml) + `install.sh` instead.
 
 ## 2. Environment variables
 
 Passed via Compose `environment:` (YAML anchor) — **no** `.env` file bind mount. Set everything in Coolify → **Environment**.
+
+Do **not** set `PD_HOST_PROJECT_PATH` in Coolify, and do not paste any value containing `${PWD}`. Coolify writes Environment values into `build-time.env`; malformed templates such as `${PWD` stop the deploy before Dockerfiles are read.
 
 ```bash
 cd deploy
@@ -63,8 +65,10 @@ Required:
 2. **Docker Compose** (normal build pack, not Raw Compose)
 3. **GitHub App** → repository `ltechconsultancy/pocket-dev`, branch `main`
 4. **Compose file location:** `deploy/compose.coolify.yml`
-5. Paste environment from `setup-coolify.sh`
-6. **Deploy** (builds php, nginx, postgres from repo)
+5. **Base Directory:** `/`
+6. Paste environment from `setup-coolify.sh`
+7. Delete any stale `PD_HOST_PROJECT_PATH` or other value containing `PWD`
+8. **Deploy** (builds php, nginx, postgres from repo)
 
 ## 4. Domain (TLS) — only nginx
 
@@ -114,7 +118,7 @@ docker run --rm -v pocket-dev-workspace:/data -v "$(pwd)":/backup alpine \
 
 | Symptom | Check |
 |---------|--------|
-| **`Invalid template: "${PWD"`** | In Coolify **Environment**, delete any variable whose value contains `PWD` (often `PD_HOST_PROJECT_PATH=${PWD}`). Do not use `deploy/compose.yml` here — only `deploy/compose.coolify.yml`. Redeploy after pull. |
+| **`Invalid template: "${PWD"`** | In Coolify **Environment**, delete any variable whose value contains `PWD` (often stale `PD_HOST_PROJECT_PATH`). Do not use `deploy/compose.yml` here — only `deploy/compose.coolify.yml`. Save, refresh/reload the resource, and redeploy with cache disabled. |
 | **Dockerfile not found (`../docker-...`)** | Base directory `/`, compose `deploy/compose.coolify.yml`; build `context` must be `.` (repo root). |
 | **Build fails** | Coolify build logs; repo contains `www/`, `docker-laravel/`, `docker-postgres/` |
 | **502 / 504** | FQDN on `pocket-dev-nginx:80`; no custom `networks:` in compose |

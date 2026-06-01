@@ -16,8 +16,9 @@ if [ -f /var/www/.env ] && [ ! -s /var/www/.env ]; then
     echo "WARN: /var/www/.env exists but is empty (remove erroneous .env volume mount); recreating..."
     rm -f /var/www/.env
 fi
+bootstrap_env_file() {
 if [ ! -f /var/www/.env ] && [ -f /var/www/.env.example ]; then
-    echo "No .env mounted — creating from .env.example + container environment..."
+    echo "No .env — creating from .env.example + container environment..."
     cp /var/www/.env.example /var/www/.env
     for key in PD_APP_KEY PD_APP_ENV PD_APP_DEBUG PD_APP_URL PD_FORCE_HTTPS PD_DOMAIN_NAME \
         PD_DEPLOYMENT_MODE PD_PROJECT_NAME PD_DB_CONNECTION PD_DB_HOST PD_DB_PORT PD_DB_DATABASE \
@@ -37,6 +38,8 @@ if [ ! -f /var/www/.env ] && [ -f /var/www/.env.example ]; then
     sed -i 's/^PD_DB_CONNECTION=.*/PD_DB_CONNECTION=pgsql/' /var/www/.env
     sed -i 's/^PD_REDIS_CLIENT=.*/PD_REDIS_CLIENT=predis/' /var/www/.env
 fi
+}
+bootstrap_env_file
 
 # Runtime configurable UID/GID (from compose.yml environment)
 TARGET_UID="${PD_TARGET_UID:-1000}"
@@ -182,8 +185,10 @@ if [ $# -eq 0 ] || [ "$1" = "php-fpm" ]; then
 
     # Run Laravel production optimizations (as www-data, which is in TARGET_GID group)
     echo "Running Laravel optimizations..."
-    if ! gosu www-data php artisan migrate --force --no-interaction; then
-        echo "FATAL: database migrations failed (check PD_DB_* and postgres logs)" >&2
+    if ! gosu www-data php artisan migrate --force --no-interaction 2>&1; then
+        echo "FATAL: database migrations failed." >&2
+        echo "  If you changed PD_DB_PASSWORD: delete the postgres volume in Coolify or restore the old password." >&2
+        echo "  Logs: docker logs <pocket-dev-php-container>" >&2
         exit 1
     fi
     gosu www-data php artisan config:cache --no-interaction

@@ -127,7 +127,7 @@ docker run --rm -v pocket-dev-workspace:/data -v "$(pwd)":/backup alpine \
 | **Missing config** | All `PD_*` in Coolify Environment; redeploy after changes |
 | **Docker tools fail** | `PD_DOCKER_GID` matches host docker group |
 | **OOM** | `PD_QUEUE_WORKERS=4`; use 8 GB+ RAM |
-| **`pocket-dev-php` unhealthy** | `docker logs <php-container>` — usually failed migrations or empty `.env` volume. **Do not** use `volumes: .env:/var/www/.env` (Coolify creates empty `*_env` volume). Use `env_file: .env` only. Delete stray volume `…_env` in Coolify if present. Ensure `PD_DB_*` match postgres; run `./setup-coolify.sh`. First start: up to 5 min. |
+| **`pocket-dev-php` unhealthy** | `docker logs <php-container>`. Common causes: (1) **DB password mismatch** — postgres volume keeps the first password; delete `…_postgres` volume or restore old `PD_DB_PASSWORD`. (2) Empty `*_env` volume from old compose — delete it. (3) After entrypoint changes: **rebuild** php/queue images (not only restart). Healthcheck uses `php-fpm -t` (not `pgrep`). First start: up to 5 min. |
 
 ## Security
 

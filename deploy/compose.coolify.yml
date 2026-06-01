@@ -54,16 +54,8 @@ services:
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
-      - type: volume
-        source: shared-tmp-data
-        target: /tmp/pocketdev
-        volume:
-          subpath: pocketdev
-      - type: volume
-        source: shared-tmp-data
-        target: /tmp/pocketdev-uploads
-        volume:
-          subpath: pocketdev-uploads
+      - pocketdev-tmp:/tmp/pocketdev
+      - pocketdev-uploads:/tmp/pocketdev-uploads
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       pocket-dev-postgres:
@@ -153,16 +145,8 @@ services:
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
-      - type: volume
-        source: shared-tmp-data
-        target: /tmp/pocketdev
-        volume:
-          subpath: pocketdev
-      - type: volume
-        source: shared-tmp-data
-        target: /tmp/pocketdev-uploads
-        volume:
-          subpath: pocketdev-uploads
+      - pocketdev-tmp:/tmp/pocketdev
+      - pocketdev-uploads:/tmp/pocketdev-uploads
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       pocket-dev-redis:
@@ -187,6 +171,8 @@ volumes:
     name: ${PD_PROJECT_NAME:-pocket-dev}-user
   pocketdev-storage:
     name: ${PD_PROJECT_NAME:-pocket-dev}-storage
-  # Renamed from shared-tmp (v1 had node-compile-cache file conflict on Coolify).
-  shared-tmp-data:
-    name: ${PD_PROJECT_NAME:-pocket-dev}-shared-tmp-v2
+  # Separate volumes (subpath mounts fail on empty Coolify volumes).
+  pocketdev-tmp:
+    name: ${PD_PROJECT_NAME:-pocket-dev}-pocketdev-tmp
+  pocketdev-uploads:
+    name: ${PD_PROJECT_NAME:-pocket-dev}-pocketdev-uploads

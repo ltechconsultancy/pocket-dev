@@ -42,7 +42,7 @@ services:
       - traefik.enable=false
     working_dir: /var/www
     env_file:
-      - .env
+      - ../.env
     environment:
       <<: *pocketdev-env
       HOME: /home/appuser
@@ -129,7 +129,7 @@ services:
     working_dir: /var/www
     entrypoint: ["/queue-entrypoint.sh"]
     env_file:
-      - .env
+      - ../.env
     environment:
       <<: *pocketdev-env
       HOME: /home/appuser

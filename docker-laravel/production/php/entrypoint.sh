@@ -11,7 +11,11 @@ set -e
 
 echo "Starting Laravel production container..."
 
-# Laravel expects /var/www/.env (Coolify mounts project-root .env; bootstrap if missing).
+# Laravel expects /var/www/.env (Coolify: use env_file, not .env volume — empty mount blocks bootstrap).
+if [ -f /var/www/.env ] && [ ! -s /var/www/.env ]; then
+    echo "WARN: /var/www/.env exists but is empty (remove erroneous .env volume mount); recreating..."
+    rm -f /var/www/.env
+fi
 if [ ! -f /var/www/.env ] && [ -f /var/www/.env.example ]; then
     echo "No .env mounted — creating from .env.example + container environment..."
     cp /var/www/.env.example /var/www/.env

@@ -3,7 +3,7 @@
 # Coolify: Docker Compose (not Raw) → compose file: deploy/compose.coolify.yml
 # FQDN on pocket-dev-nginx → port 80. No custom networks. No Traefik labels here.
 # Env: Coolify → Environment tab (or ./setup-coolify.sh).
-# Coolify writes project-root .env from Environment; mount it into Laravel (php + queue).
+# Coolify writes project-root .env — use env_file (do NOT mount .env: path; Coolify creates empty *_env volume).
 #
 # Build context ".." = repository root (this file is in deploy/).
 
@@ -41,13 +41,14 @@ services:
     labels:
       - traefik.enable=false
     working_dir: /var/www
+    env_file:
+      - .env
     environment:
       <<: *pocketdev-env
       HOME: /home/appuser
       PD_TARGET_UID: ${PD_USER_ID:-1000}
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
     volumes:
-      - .env:/var/www/.env:ro
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
@@ -126,6 +127,8 @@ services:
       - traefik.enable=false
     working_dir: /var/www
     entrypoint: ["/queue-entrypoint.sh"]
+    env_file:
+      - .env
     environment:
       <<: *pocketdev-env
       HOME: /home/appuser
@@ -133,7 +136,6 @@ services:
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
       PD_QUEUE_WORKERS: ${PD_QUEUE_WORKERS:-8}
     volumes:
-      - .env:/var/www/.env:ro
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev

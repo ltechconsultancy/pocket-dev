@@ -48,11 +48,22 @@ services:
       HOME: /home/appuser
       PD_TARGET_UID: ${PD_USER_ID:-1000}
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
+    tmpfs:
+      - /tmp
     volumes:
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
-      - shared-tmp:/tmp
+      - type: volume
+        source: shared-tmp
+        target: /tmp/pocketdev
+        volume:
+          subpath: pocketdev
+      - type: volume
+        source: shared-tmp
+        target: /tmp/pocketdev-uploads
+        volume:
+          subpath: pocketdev-uploads
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       pocket-dev-postgres:
@@ -136,11 +147,22 @@ services:
       PD_TARGET_UID: ${PD_USER_ID:-1000}
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
       PD_QUEUE_WORKERS: ${PD_QUEUE_WORKERS:-8}
+    tmpfs:
+      - /tmp
     volumes:
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
-      - shared-tmp:/tmp
+      - type: volume
+        source: shared-tmp
+        target: /tmp/pocketdev
+        volume:
+          subpath: pocketdev
+      - type: volume
+        source: shared-tmp
+        target: /tmp/pocketdev-uploads
+        volume:
+          subpath: pocketdev-uploads
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       pocket-dev-redis:

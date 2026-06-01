@@ -127,6 +127,7 @@ docker run --rm -v pocket-dev-workspace:/data -v "$(pwd)":/backup alpine \
 | **Missing config** | All `PD_*` in Coolify Environment; redeploy after changes |
 | **Docker tools fail** | `PD_DOCKER_GID` matches host docker group |
 | **OOM** | `PD_QUEUE_WORKERS=4`; use 8 GB+ RAM |
+| **`node-compile-cache: file exists`** | Delete Coolify volume `shared-tmp` / `*_shared-tmp`, redeploy. Compose uses `tmpfs` for `/tmp` and only mounts `pocketdev` subpaths (avoids Node cache conflicts). |
 | **`pocket-dev-php` unhealthy** | `docker logs <php-container>`. Common causes: (1) **DB password mismatch** — postgres volume keeps the first password; delete `…_postgres` volume or restore old `PD_DB_PASSWORD`. (2) Empty `*_env` volume from old compose — delete it. (3) After entrypoint changes: **rebuild** php/queue images (not only restart). Healthcheck uses `php-fpm -t` (not `pgrep`). First start: up to 5 min. |
 
 ## Security

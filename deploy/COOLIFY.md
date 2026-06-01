@@ -81,9 +81,35 @@ Required:
 
 Push to the connected branch → **Redeploy** in Coolify (rebuilds when Dockerfiles or app code change). Optional: enable auto-deploy on push in Git settings.
 
-## Backups & smoke test
+## Backups
 
-See sections in previous docs — `pg_dump`, volume tar, checklist: HTTPS wizard, chat/SSE, uploads, Docker tools, queue healthy, redeploy keeps volumes.
+```bash
+# From the Coolify project directory (adjust path to your deployment)
+docker compose -f deploy/compose.coolify.yml exec pocket-dev-postgres \
+  pg_dump -U pocket-dev pocket-dev > backup-$(date +%Y%m%d).sql
+
+docker run --rm -v pocket-dev-workspace:/data -v "$(pwd)":/backup alpine \
+  tar czf /backup/workspace-$(date +%Y%m%d).tar.gz -C /data .
+```
+
+## Smoke test after deploy
+
+- [ ] HTTPS loads the setup wizard
+- [ ] Chat / SSE streaming (long reply)
+- [ ] File upload (~10 MB+)
+- [ ] Docker panel works (`docker ps` from PocketDev)
+- [ ] All services healthy (`docker compose ps`)
+- [ ] Redeploy preserves data (volumes unchanged)
+
+## Troubleshooting
+
+| Symptom | Check |
+|---------|--------|
+| **Build fails** | Coolify build logs; repo contains `www/`, `docker-laravel/`, `docker-postgres/` |
+| **502 / 504** | FQDN on `pocket-dev-nginx:80`; no custom `networks:` in compose |
+| **Missing config** | All `PD_*` in Coolify Environment; redeploy after changes |
+| **Docker tools fail** | `PD_DOCKER_GID` matches host docker group |
+| **OOM** | `PD_QUEUE_WORKERS=4`; use 8 GB+ RAM |
 
 ## Security
 

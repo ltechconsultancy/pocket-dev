@@ -2,7 +2,8 @@
 #
 # Coolify: Docker Compose (not Raw) → compose file: deploy/compose.coolify.yml
 # FQDN on pocket-dev-nginx → port 80. No custom networks. No Traefik labels here.
-# Env: Coolify → Environment tab (or ./setup-coolify.sh). No .env file bind mount.
+# Env: Coolify → Environment tab (or ./setup-coolify.sh).
+# Coolify writes project-root .env from Environment; mount it into Laravel (php + queue).
 #
 # Build context ".." = repository root (this file is in deploy/).
 
@@ -46,6 +47,7 @@ services:
       PD_TARGET_UID: ${PD_USER_ID:-1000}
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
     volumes:
+      - .env:/var/www/.env:ro
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
@@ -57,11 +59,11 @@ services:
       pocket-dev-redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "php-fpm -t || exit 1"]
+      test: ["CMD-SHELL", "pgrep -x php-fpm >/dev/null || exit 1"]
       interval: 15s
       timeout: 10s
-      retries: 3
-      start_period: 90s
+      retries: 5
+      start_period: 300s
 
   pocket-dev-nginx:
     build:
@@ -131,6 +133,7 @@ services:
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
       PD_QUEUE_WORKERS: ${PD_QUEUE_WORKERS:-8}
     volumes:
+      - .env:/var/www/.env:ro
       - user-data:/home/appuser
       - workspace-data:/workspace
       - pocketdev-storage:/var/www/storage/pocketdev
@@ -145,8 +148,8 @@ services:
       test: ["CMD-SHELL", "supervisorctl -c /etc/supervisor/conf.d/queue-workers.conf status | awk 'BEGIN{ok=1;count=0;sched=0} /^queue-worker_/ {count++; if ($2 != \"RUNNING\") ok=0} /^scheduler/ {sched++; if ($2 != \"RUNNING\") ok=0} END{if (count==0) ok=0; if (sched==0) ok=0; exit !ok}'"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 90s
+      retries: 5
+      start_period: 300s
 
 volumes:
   postgres-data:

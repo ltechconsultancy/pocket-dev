@@ -9,7 +9,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TEMPLATE="${SCRIPT_DIR}/.env.coolify.example"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TEMPLATE="${REPO_ROOT}/www/.env.example"
 OUTPUT="${SCRIPT_DIR}/.env"
 DOMAIN=""
 
@@ -83,6 +84,17 @@ sedi "s|^PD_APP_URL=.*|PD_APP_URL=https://$DOMAIN|" "$OUTPUT"
 sedi "s|^PD_DOMAIN_NAME=.*|PD_DOMAIN_NAME=$DOMAIN|" "$OUTPUT"
 sedi "s|^PD_FORCE_HTTPS=.*|PD_FORCE_HTTPS=true|" "$OUTPUT"
 sedi "s|^PD_DEPLOYMENT_MODE=.*|PD_DEPLOYMENT_MODE=production|" "$OUTPUT"
+sedi "s|^PD_APP_ENV=.*|PD_APP_ENV=production|" "$OUTPUT"
+sedi "s|^PD_APP_DEBUG=.*|PD_APP_DEBUG=false|" "$OUTPUT"
+sedi "s|^PD_DB_CONNECTION=.*|PD_DB_CONNECTION=pgsql|" "$OUTPUT"
+sedi "s|^PD_DB_HOST=.*|PD_DB_HOST=pocket-dev-postgres|" "$OUTPUT"
+sedi "s|^PD_DB_PORT=.*|PD_DB_PORT=5432|" "$OUTPUT"
+sedi "s|^PD_DB_DATABASE=.*|PD_DB_DATABASE=pocket-dev|" "$OUTPUT"
+sedi "s|^PD_DB_USERNAME=.*|PD_DB_USERNAME=pocket-dev|" "$OUTPUT"
+sedi "s|^PD_REDIS_CLIENT=.*|PD_REDIS_CLIENT=predis|" "$OUTPUT"
+sedi "s|^PD_REDIS_HOST=.*|PD_REDIS_HOST=pocket-dev-redis|" "$OUTPUT"
+sedi "s|^PD_REDIS_PORT=.*|PD_REDIS_PORT=6379|" "$OUTPUT"
+sedi "s|^PD_GROUP_ID=.*|PD_GROUP_ID=1000|" "$OUTPUT"
 
 if [[ -S /var/run/docker.sock ]]; then
     DOCKER_GID="$(get_gid /var/run/docker.sock)"
@@ -92,9 +104,7 @@ if [[ -S /var/run/docker.sock ]]; then
 fi
 
 USER_ID="$(id -u)"
-GROUP_ID="$(id -g)"
 sedi "s|^PD_USER_ID=.*|PD_USER_ID=$USER_ID|" "$OUTPUT"
-sedi "s|^PD_GROUP_ID=.*|PD_GROUP_ID=$GROUP_ID|" "$OUTPUT"
 
 echo "Wrote Coolify environment file: $OUTPUT"
 echo ""

@@ -11,6 +11,29 @@ set -e
 
 echo "Starting Laravel production container..."
 
+# Laravel expects /var/www/.env (Coolify mounts project-root .env; bootstrap if missing).
+if [ ! -f /var/www/.env ] && [ -f /var/www/.env.example ]; then
+    echo "No .env mounted — creating from .env.example + container environment..."
+    cp /var/www/.env.example /var/www/.env
+    for key in PD_APP_KEY PD_APP_ENV PD_APP_DEBUG PD_APP_URL PD_FORCE_HTTPS PD_DOMAIN_NAME \
+        PD_DEPLOYMENT_MODE PD_PROJECT_NAME PD_DB_CONNECTION PD_DB_HOST PD_DB_PORT PD_DB_DATABASE \
+        PD_DB_USERNAME PD_DB_PASSWORD PD_DB_READONLY_PASSWORD PD_DB_MEMORY_AI_PASSWORD \
+        PD_REDIS_CLIENT PD_REDIS_HOST PD_REDIS_PORT PD_DOCKER_GID PD_USER_ID PD_GROUP_ID PD_QUEUE_WORKERS; do
+        val="${!key:-}"
+        if [ -n "$val" ]; then
+            if grep -q "^${key}=" /var/www/.env 2>/dev/null; then
+                sed -i "s|^${key}=.*|${key}=${val}|" /var/www/.env
+            else
+                echo "${key}=${val}" >> /var/www/.env
+            fi
+        fi
+    done
+    sed -i 's/^PD_APP_ENV=.*/PD_APP_ENV=production/' /var/www/.env
+    sed -i 's/^PD_APP_DEBUG=.*/PD_APP_DEBUG=false/' /var/www/.env
+    sed -i 's/^PD_DB_CONNECTION=.*/PD_DB_CONNECTION=pgsql/' /var/www/.env
+    sed -i 's/^PD_REDIS_CLIENT=.*/PD_REDIS_CLIENT=predis/' /var/www/.env
+fi
+
 # Runtime configurable UID/GID (from compose.yml environment)
 TARGET_UID="${PD_TARGET_UID:-1000}"
 TARGET_GID="${PD_TARGET_GID:-1000}"
@@ -155,7 +178,10 @@ if [ $# -eq 0 ] || [ "$1" = "php-fpm" ]; then
 
     # Run Laravel production optimizations (as www-data, which is in TARGET_GID group)
     echo "Running Laravel optimizations..."
-    gosu www-data php artisan migrate --force --no-interaction
+    if ! gosu www-data php artisan migrate --force --no-interaction; then
+        echo "FATAL: database migrations failed (check PD_DB_* and postgres logs)" >&2
+        exit 1
+    fi
     gosu www-data php artisan config:cache --no-interaction
     gosu www-data php artisan route:cache --no-interaction
     gosu www-data php artisan view:cache --no-interaction

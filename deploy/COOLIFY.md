@@ -127,6 +127,7 @@ docker run --rm -v pocket-dev-workspace:/data -v "$(pwd)":/backup alpine \
 | **Missing config** | All `PD_*` in Coolify Environment; redeploy after changes |
 | **Docker tools fail** | `PD_DOCKER_GID` matches host docker group |
 | **OOM** | `PD_QUEUE_WORKERS=4`; use 8 GB+ RAM |
+| **`pocket-dev-php` unhealthy** | `docker logs <php-container>` — usually failed migrations. Ensure all `PD_DB_*` match; if you changed `PD_DB_PASSWORD` after first deploy, delete the postgres volume or reset password. Compose mounts Coolify’s `.env` into `/var/www/.env`; run `./setup-coolify.sh` for a full Laravel env file. First start can take several minutes (migrations). |
 
 ## Security
 

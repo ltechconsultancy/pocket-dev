@@ -29,6 +29,8 @@ x-pocketdev-env: &pocketdev-env
   PD_DOCKER_GID: ${PD_DOCKER_GID:?set PD_DOCKER_GID}
   PD_USER_ID: ${PD_USER_ID:-1000}
   PD_GROUP_ID: ${PD_GROUP_ID:-1000}
+  # Host path for Docker-from-PocketDev (optional). Do not use ${PWD} — breaks Coolify build-time.env.
+  PD_HOST_PROJECT_PATH: ${PD_HOST_PROJECT_PATH:-}
 
 services:
   pocket-dev-php:
@@ -44,7 +46,6 @@ services:
       HOME: /home/appuser
       PD_TARGET_UID: ${PD_USER_ID:-1000}
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
-      PD_HOST_PROJECT_PATH: ${PD_HOST_PROJECT_PATH:-${PWD}}
     volumes:
       - user-data:/home/appuser
       - workspace-data:/workspace
@@ -129,7 +130,6 @@ services:
       HOME: /home/appuser
       PD_TARGET_UID: ${PD_USER_ID:-1000}
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
-      PD_HOST_PROJECT_PATH: ${PD_HOST_PROJECT_PATH:-${PWD}}
       CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
       PD_QUEUE_WORKERS: ${PD_QUEUE_WORKERS:-8}
     volumes:

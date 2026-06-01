@@ -57,6 +57,7 @@ Required:
 - `PD_APP_URL`, `PD_DOMAIN_NAME`, `PD_FORCE_HTTPS=true`, `PD_DEPLOYMENT_MODE=production`
 - `PD_DOCKER_GID` — on server: `stat -c '%g' /var/run/docker.sock`
 - `PD_QUEUE_WORKERS` — `4` on 4 GB VPS, `8` default in compose
+- `PD_HOST_PROJECT_PATH` — optional: host path to this Coolify deployment (for Docker-in-Docker). **Do not use `${PWD}` in compose** — Coolify fails on `build-time.env`. Leave empty if unsure.
 
 ## 3. Coolify resource setup
 

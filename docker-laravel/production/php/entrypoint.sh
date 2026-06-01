@@ -41,6 +41,53 @@ fi
 }
 bootstrap_env_file
 
+# Database preflight: fail fast on auth mismatch and retry on startup races.
+check_database_connection() {
+    local db_host="${PD_DB_HOST:-pocket-dev-postgres}"
+    local db_port="${PD_DB_PORT:-5432}"
+    local db_name="${PD_DB_DATABASE:-pocket-dev}"
+    local db_user="${PD_DB_USERNAME:-pocket-dev}"
+    local db_pass="${PD_DB_PASSWORD:-}"
+    local attempts="${PD_DB_CONNECT_ATTEMPTS:-30}"
+    local sleep_seconds="${PD_DB_CONNECT_SLEEP:-2}"
+    local attempt=1
+    local output=""
+
+    if [ -z "$db_pass" ]; then
+        echo "FATAL: PD_DB_PASSWORD is empty." >&2
+        return 1
+    fi
+
+    echo "Checking database connection to ${db_host}:${db_port}/${db_name} as ${db_user}..."
+    while [ "$attempt" -le "$attempts" ]; do
+        if output="$(
+            PGPASSWORD="$db_pass" psql \
+                "host=${db_host} port=${db_port} dbname=${db_name} user=${db_user} connect_timeout=3" \
+                -Atqc "SELECT 1" 2>&1
+        )"; then
+            echo "Database connection established."
+            return 0
+        fi
+
+        if echo "$output" | grep -qi "password authentication failed\|role .* does not exist"; then
+            echo "FATAL: Database authentication failed for ${db_user}@${db_host}:${db_port}/${db_name}." >&2
+            echo "  This usually means the postgres volume was initialized with a different PD_DB_PASSWORD." >&2
+            echo "  Fix: restore the old PD_DB_PASSWORD OR delete the ${PD_PROJECT_NAME:-pocket-dev}-postgres volume and redeploy." >&2
+            return 1
+        fi
+
+        if [ "$attempt" -eq "$attempts" ]; then
+            echo "FATAL: Database connection failed after ${attempts} attempts." >&2
+            echo "  Last error: $output" >&2
+            return 1
+        fi
+
+        echo "Database not ready yet (attempt ${attempt}/${attempts}); retrying in ${sleep_seconds}s..."
+        attempt=$((attempt + 1))
+        sleep "$sleep_seconds"
+    done
+}
+
 # Runtime configurable UID/GID (from compose.yml environment)
 TARGET_UID="${PD_TARGET_UID:-1000}"
 TARGET_GID="${PD_TARGET_GID:-1000}"
@@ -175,6 +222,11 @@ find /var/www/bootstrap/cache -type f -exec chmod 664 {} \; 2>/dev/null || true
 # vs secondary container (queue worker, scheduler, etc.)
 if [ $# -eq 0 ] || [ "$1" = "php-fpm" ]; then
     # Main PHP container: run migrations, caching, and start PHP-FPM
+
+    if ! check_database_connection; then
+        echo "FATAL: refusing to start PHP-FPM without a working database connection." >&2
+        exit 1
+    fi
 
     # Generate Laravel application key if not set
     if [ -f ".env" ] && ! grep -q "^PD_APP_KEY=.\+" .env; then

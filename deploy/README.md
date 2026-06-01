@@ -2,6 +2,10 @@
 
 Pre-built Docker Compose configuration for production deployment.
 
+## Coolify
+
+To run on a [Coolify](https://coolify.io) server (Traefik SSL, no proxy-nginx), use [`compose.coolify.yml`](compose.coolify.yml) and follow [`COOLIFY.md`](COOLIFY.md).
+
 ## Quick Start
 
 ### With VPS Setup (Recommended)
@@ -106,6 +110,9 @@ docker exec proxy-nginx /scripts/domain.sh list
 | File | Purpose |
 |------|---------|
 | `compose.yml` | Main Docker Compose configuration |
+| `compose.coolify.yml` | Coolify / Traefik deployment |
 | `compose.override.yml` | Proxy-nginx integration (auto-generated) |
+| `COOLIFY.md` | Coolify setup guide |
 | `.env` | Environment configuration |
 | `.env.example` | Template for .env |
+| `.env.coolify.example` | Template for Coolify deployments |

@@ -129,7 +129,6 @@ services:
       HOME: /home/appuser
       PD_TARGET_UID: ${PD_USER_ID:-1000}
       PD_TARGET_GID: ${PD_GROUP_ID:-1000}
-      CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
       PD_QUEUE_WORKERS: ${PD_QUEUE_WORKERS:-8}
     volumes:
       - user-data:/home/appuser

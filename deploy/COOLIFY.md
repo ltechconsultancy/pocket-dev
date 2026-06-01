@@ -59,6 +59,8 @@ Required:
 - `PD_APP_URL`, `PD_DOMAIN_NAME`, `PD_FORCE_HTTPS=true`, `PD_DEPLOYMENT_MODE=production`
 - `PD_DOCKER_GID` — on server: `stat -c '%g' /var/run/docker.sock`
 - `PD_QUEUE_WORKERS` — `4` on 4 GB VPS, `8` default in compose
+
+Optional (not in `compose.coolify.yml` — add in Coolify only if you need a pinned CLI): `CLAUDE_CODE_VERSION=2.1.17` on the **queue** service via Coolify’s per-service env, not as a locked compose-derived var.
 ## 3. Coolify resource setup
 
 1. **Project** → **Environment** → **+ Add Resource**

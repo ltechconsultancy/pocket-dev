@@ -1,0 +1,18 @@
+Plak alleen coolify-environment-paste.txt in Coolify → Environment.
+
+NIET plakken / NIET verwijderen (Coolify beheert zelf):
+  SERVICE_FQDN_POCKET_DEV_NGINX
+  SERVICE_URL_POCKET_DEV_NGINX
+
+NIET toevoegen:
+  PD_HOST_PROJECT_PATH
+
+CLAUDE_CODE_VERSION staat niet in compose.coolify.yml (optioneel).
+Laat een oude CLAUDE_CODE_VERSION in Coolify staan of verwijder na redeploy
+vanaf nieuwste main — niet handmatig deleten vóór pull.
+
+PD_DOCKER_GID: op je Coolify-server:
+  stat -c '%g' /var/run/docker.sock
+Vervang 988 in paste.txt als dat getal anders is.
+
+Na plakken: Save → Redeploy (force rebuild).

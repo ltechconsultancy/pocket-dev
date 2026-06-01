@@ -29,13 +29,12 @@ x-pocketdev-env: &pocketdev-env
   PD_DOCKER_GID: ${PD_DOCKER_GID:?set PD_DOCKER_GID}
   PD_USER_ID: ${PD_USER_ID:-1000}
   PD_GROUP_ID: ${PD_GROUP_ID:-1000}
-  # Host path for Docker-from-PocketDev (optional). Do not use ${PWD} — breaks Coolify build-time.env.
-  PD_HOST_PROJECT_PATH: ${PD_HOST_PROJECT_PATH:-}
 
 services:
   pocket-dev-php:
     build:
-      context: ..
+      # "." = repo root when Coolify sets --project-directory to clone root (not "..").
+      context: .
       dockerfile: docker-laravel/production/php/Dockerfile
     restart: unless-stopped
     labels:
@@ -66,7 +65,7 @@ services:
 
   pocket-dev-nginx:
     build:
-      context: ..
+      context: .
       dockerfile: docker-laravel/production/nginx/Dockerfile
     restart: unless-stopped
     expose:
@@ -83,7 +82,7 @@ services:
 
   pocket-dev-postgres:
     build:
-      context: ..
+      context: .
       dockerfile: docker-postgres/Dockerfile
     restart: unless-stopped
     labels:
@@ -118,7 +117,7 @@ services:
 
   pocket-dev-queue:
     build:
-      context: ..
+      context: .
       dockerfile: docker-laravel/production/php/Dockerfile
     restart: unless-stopped
     labels:

@@ -57,8 +57,6 @@ Required:
 - `PD_APP_URL`, `PD_DOMAIN_NAME`, `PD_FORCE_HTTPS=true`, `PD_DEPLOYMENT_MODE=production`
 - `PD_DOCKER_GID` — on server: `stat -c '%g' /var/run/docker.sock`
 - `PD_QUEUE_WORKERS` — `4` on 4 GB VPS, `8` default in compose
-- `PD_HOST_PROJECT_PATH` — optional: host path to this Coolify deployment (for Docker-in-Docker). **Do not use `${PWD}` in compose** — Coolify fails on `build-time.env`. Leave empty if unsure.
-
 ## 3. Coolify resource setup
 
 1. **Project** → **Environment** → **+ Add Resource**
@@ -116,6 +114,8 @@ docker run --rm -v pocket-dev-workspace:/data -v "$(pwd)":/backup alpine \
 
 | Symptom | Check |
 |---------|--------|
+| **`Invalid template: "${PWD"`** | In Coolify **Environment**, delete any variable whose value contains `PWD` (often `PD_HOST_PROJECT_PATH=${PWD}`). Do not use `deploy/compose.yml` here — only `deploy/compose.coolify.yml`. Redeploy after pull. |
+| **Dockerfile not found (`../docker-...`)** | Base directory `/`, compose `deploy/compose.coolify.yml`; build `context` must be `.` (repo root). |
 | **Build fails** | Coolify build logs; repo contains `www/`, `docker-laravel/`, `docker-postgres/` |
 | **502 / 504** | FQDN on `pocket-dev-nginx:80`; no custom `networks:` in compose |
 | **Missing config** | All `PD_*` in Coolify Environment; redeploy after changes |

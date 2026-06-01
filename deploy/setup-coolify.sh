@@ -1,6 +1,6 @@
 #!/bin/bash
-# Generate a Coolify-ready .env from .env.coolify.example (secrets + domain).
-# Paste the output into Coolify → Environment, or save as .env next to compose.coolify.yml.
+# Generate a Coolify-ready .env (full Laravel + deploy secrets).
+# Paste variables into Coolify → Environment, or use as project-root .env on deploy.
 #
 # Usage:
 #   ./setup-coolify.sh --domain=pocketdev.example.com
@@ -10,7 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TEMPLATE="${REPO_ROOT}/www/.env.example"
+LARAVEL_ENV="${REPO_ROOT}/www/.env.example"
 OUTPUT="${SCRIPT_DIR}/.env"
 DOMAIN=""
 
@@ -64,12 +64,33 @@ if [[ -z "$DOMAIN" ]]; then
     exit 1
 fi
 
-if [[ ! -f "$TEMPLATE" ]]; then
-    echo "Error: template not found: $TEMPLATE" >&2
+if [[ ! -f "$LARAVEL_ENV" ]]; then
+    echo "Error: template not found: $LARAVEL_ENV" >&2
     exit 1
 fi
 
-cp "$TEMPLATE" "$OUTPUT"
+cp "$LARAVEL_ENV" "$OUTPUT"
+
+# Deploy-specific variables (not in www/.env.example)
+cat >> "$OUTPUT" <<'DEPLOY_BLOCK'
+
+# --- PocketDev deploy (Coolify) ---
+PD_PROJECT_NAME=pocket-dev
+PD_FORCE_HTTPS=true
+PD_DOMAIN_NAME=localhost
+PD_DEPLOYMENT_MODE=production
+PD_DB_HOST=pocket-dev-postgres
+PD_DB_PORT=5432
+PD_DB_DATABASE=pocket-dev
+PD_DB_USERNAME=pocket-dev
+PD_DB_PASSWORD=
+PD_DB_READONLY_PASSWORD=
+PD_DB_MEMORY_AI_PASSWORD=
+PD_DOCKER_GID=
+PD_USER_ID=1000
+PD_GROUP_ID=1000
+PD_QUEUE_WORKERS=8
+DEPLOY_BLOCK
 
 APP_KEY="base64:$(openssl rand -base64 32)"
 DB_PASSWORD="$(openssl rand -hex 16)"
@@ -87,14 +108,9 @@ sedi "s|^PD_DEPLOYMENT_MODE=.*|PD_DEPLOYMENT_MODE=production|" "$OUTPUT"
 sedi "s|^PD_APP_ENV=.*|PD_APP_ENV=production|" "$OUTPUT"
 sedi "s|^PD_APP_DEBUG=.*|PD_APP_DEBUG=false|" "$OUTPUT"
 sedi "s|^PD_DB_CONNECTION=.*|PD_DB_CONNECTION=pgsql|" "$OUTPUT"
-sedi "s|^PD_DB_HOST=.*|PD_DB_HOST=pocket-dev-postgres|" "$OUTPUT"
-sedi "s|^PD_DB_PORT=.*|PD_DB_PORT=5432|" "$OUTPUT"
-sedi "s|^PD_DB_DATABASE=.*|PD_DB_DATABASE=pocket-dev|" "$OUTPUT"
-sedi "s|^PD_DB_USERNAME=.*|PD_DB_USERNAME=pocket-dev|" "$OUTPUT"
 sedi "s|^PD_REDIS_CLIENT=.*|PD_REDIS_CLIENT=predis|" "$OUTPUT"
 sedi "s|^PD_REDIS_HOST=.*|PD_REDIS_HOST=pocket-dev-redis|" "$OUTPUT"
 sedi "s|^PD_REDIS_PORT=.*|PD_REDIS_PORT=6379|" "$OUTPUT"
-sedi "s|^PD_GROUP_ID=.*|PD_GROUP_ID=1000|" "$OUTPUT"
 
 if [[ -S /var/run/docker.sock ]]; then
     DOCKER_GID="$(get_gid /var/run/docker.sock)"
@@ -109,8 +125,8 @@ sedi "s|^PD_USER_ID=.*|PD_USER_ID=$USER_ID|" "$OUTPUT"
 echo "Wrote Coolify environment file: $OUTPUT"
 echo ""
 echo "Next steps:"
-echo "  1. Copy all variables into Coolify → Environment (or use this file as deploy/.env)"
+echo "  1. Copy variables into Coolify → Environment (see deploy/coolify-ALLES-plakken.txt helper)"
 echo "  2. GitHub app → compose file: deploy/compose.coolify.yml"
 echo "  3. FQDN on pocket-dev-nginx → https://$DOMAIN (port 80)"
 echo "  4. Do not add PD_HOST_PROJECT_PATH or any value containing \${PWD}"
-echo "  5. Deploy (first build compiles php, nginx, postgres from repo)"
+echo "  5. Redeploy (php mounts .env; first start may take a few minutes)"

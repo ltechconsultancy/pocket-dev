@@ -310,6 +310,66 @@
                     <p class="text-xs text-gray-400 mt-1">Controls reasoning depth for Codex models</p>
                 </div>
 
+                <!-- Cursor Agent Reasoning Effort -->
+                <!-- Cursor Agent: Thinking toggle + Effort dropdown (independent axes) -->
+                <div x-show="provider === 'cursor_agent'" x-cloak class="space-y-3">
+                    <!-- Thinking toggle (Claude models only) -->
+                    @php $cursorThinking = old('cursor_agent_thinking', ($agent->reasoning_config['thinking'] ?? null) ?? ($sourceAgent->reasoning_config['thinking'] ?? true)); @endphp
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input
+                            type="hidden"
+                            name="cursor_agent_thinking"
+                            value="0"
+                        >
+                        <input
+                            type="checkbox"
+                            name="cursor_agent_thinking"
+                            value="1"
+                            {{ $cursorThinking ? 'checked' : '' }}
+                            class="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                        >
+                        <span class="text-sm font-medium">Extended Thinking</span>
+                        <span class="text-xs text-gray-400">(Claude models only)</span>
+                    </label>
+
+                    <!-- Effort level -->
+                    <div>
+                        <label for="cursor_agent_reasoning_effort" class="block text-sm font-medium mb-2">Reasoning Effort</label>
+                        <select
+                            id="cursor_agent_reasoning_effort"
+                            name="cursor_agent_reasoning_effort"
+                            class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                            @php $currentCursorEffort = old('cursor_agent_reasoning_effort', ($agent->reasoning_config['effort'] ?? null) ?? ($sourceAgent->reasoning_config['effort'] ?? 'high')); @endphp
+                            <option value="low" {{ $currentCursorEffort === 'low' ? 'selected' : '' }}>Low</option>
+                            <option value="medium" {{ $currentCursorEffort === 'medium' ? 'selected' : '' }}>Medium</option>
+                            <option value="high" {{ $currentCursorEffort === 'high' ? 'selected' : '' }}>High</option>
+                            <option value="xhigh" {{ $currentCursorEffort === 'xhigh' ? 'selected' : '' }}>Extra High</option>
+                            <option value="max" {{ $currentCursorEffort === 'max' ? 'selected' : '' }}>Maximum</option>
+                        </select>
+                        <p class="text-xs text-gray-400 mt-1">Controls reasoning depth and compute budget</p>
+                    </div>
+
+                    <!-- Fast mode toggle -->
+                    @php $cursorFast = old('cursor_agent_fast', ($agent->reasoning_config['fast'] ?? null) ?? ($sourceAgent->reasoning_config['fast'] ?? false)); @endphp
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input
+                            type="hidden"
+                            name="cursor_agent_fast"
+                            value="0"
+                        >
+                        <input
+                            type="checkbox"
+                            name="cursor_agent_fast"
+                            value="1"
+                            {{ $cursorFast ? 'checked' : '' }}
+                            class="w-4 h-4 rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500"
+                        >
+                        <span class="text-sm font-medium">Fast Mode</span>
+                        <span class="text-xs text-gray-400">(faster responses, slightly lower quality)</span>
+                    </label>
+                </div>
+
                 <!-- Response Level -->
                 <div>
                     <label for="response_level" class="block text-sm font-medium mb-2">Response Level</label>

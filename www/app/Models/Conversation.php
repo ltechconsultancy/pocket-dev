@@ -187,6 +187,39 @@ class Conversation extends Model
     }
 
     /**
+     * Recompute last_context_tokens from the latest assistant message (excludes cache tokens).
+     * Fixes inflated values stored before cache was excluded from context tracking.
+     *
+     * Skips the write when the stored value already matches, since this runs on every
+     * conversation read and would otherwise produce one UPDATE per page load.
+     */
+    public function refreshLastContextTokensFromMessages(): void
+    {
+        $lastAssistant = $this->messages()
+            ->where('role', Message::ROLE_ASSISTANT)
+            ->orderByDesc('sequence')
+            ->orderByDesc('id')
+            ->first();
+
+        if (!$lastAssistant) {
+            return;
+        }
+
+        $input = (int) ($lastAssistant->input_tokens ?? 0);
+        $output = (int) ($lastAssistant->output_tokens ?? 0);
+        $cacheCreate = (int) ($lastAssistant->cache_creation_tokens ?? 0);
+        $cacheRead = (int) ($lastAssistant->cache_read_tokens ?? 0);
+        $ctxInput = max(0, $input - $cacheCreate - $cacheRead);
+        $newTotal = $ctxInput + $output;
+
+        if ((int) ($this->last_context_tokens ?? 0) === $newTotal) {
+            return;
+        }
+
+        $this->updateContextUsage($ctxInput, $output);
+    }
+
+    /**
      * Update the cached context window size for the current model.
      *
      * Called when model changes or conversation is created.
@@ -194,6 +227,50 @@ class Conversation extends Model
     public function updateContextWindowSize(int $contextWindow): void
     {
         $this->update(['context_window_size' => $contextWindow]);
+    }
+
+    /**
+     * Ensure context_window_size is set (required for context % UI and usage events).
+     *
+     * Safe to call repeatedly. Uses agent extended_context, provider model config,
+     * or cursor_agent fallback (200K) when the model is not in static config.
+     */
+    public function ensureContextWindowSize(): void
+    {
+        if ($this->context_window_size) {
+            return;
+        }
+
+        try {
+            $this->loadMissing('agent');
+            $models = app(\App\Services\ModelRepository::class);
+
+            if ($this->agent?->extended_context) {
+                $maxContextWindow = $models->getMaxContextWindow($this->model);
+                if ($maxContextWindow > 0) {
+                    $this->updateContextWindowSize($maxContextWindow);
+
+                    return;
+                }
+            }
+
+            $provider = app(\App\Services\ProviderFactory::class)->make($this->provider_type);
+            $contextWindow = $provider->getContextWindow($this->model);
+            $this->updateContextWindowSize($contextWindow);
+        } catch (\Throwable $e) {
+            if ($this->provider_type === 'cursor_agent') {
+                $this->updateContextWindowSize(200000);
+
+                return;
+            }
+
+            \Illuminate\Support\Facades\Log::debug('Conversation: Failed to ensure context window size', [
+                'conversation_uuid' => $this->uuid,
+                'model' => $this->model,
+                'provider' => $this->provider_type,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -313,6 +390,7 @@ class Conversation extends Model
             'openai_compatible' => array_merge(['effort' => 'none'], $config),
             'claude_code' => array_merge(['thinking_tokens' => 0], $config),
             'codex' => array_merge(['effort' => 'minimal'], $config),
+            'cursor_agent' => array_merge(['effort' => 'high', 'thinking' => true, 'fast' => false], $config),
             default => $config,
         };
     }

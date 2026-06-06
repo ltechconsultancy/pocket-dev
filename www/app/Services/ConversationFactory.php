@@ -198,28 +198,7 @@ class ConversationFactory
      */
     private function initializeContextWindow(Conversation $conversation): void
     {
-        try {
-            $provider = $this->providerFactory->make($conversation->provider_type);
-            $contextWindow = $provider->getContextWindow($conversation->model);
-
-            // Use extended context window if agent has the toggle on and model supports it
-            if ($conversation->agent_id) {
-                $agent = Agent::find($conversation->agent_id);
-                if ($agent?->extended_context) {
-                    $maxWindow = $this->models->getMaxContextWindow($conversation->model);
-                    if ($maxWindow > $contextWindow) {
-                        $contextWindow = $maxWindow;
-                    }
-                }
-            }
-
-            $conversation->update(['context_window_size' => $contextWindow]);
-        } catch (\Exception $e) {
-            Log::warning('Failed to initialize context window', [
-                'conversation_id' => $conversation->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        $conversation->ensureContextWindowSize();
     }
 
     /**

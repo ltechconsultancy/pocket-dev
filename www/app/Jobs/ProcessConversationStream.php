@@ -376,16 +376,21 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
 
             // For usage events, calculate cost and emit enriched event
             if ($event->type === StreamEvent::USAGE) {
+                // Context bar requires context_window_size before enriching the SSE event
+                $conversation->ensureContextWindowSize();
+                $conversation->refresh();
+
                 $inputTokens = $event->metadata['input_tokens'] ?? $inputTokens;
                 $outputTokens = $event->metadata['output_tokens'] ?? $outputTokens;
                 $cacheCreationTokens = $event->metadata['cache_creation_tokens'] ?? $cacheCreationTokens;
                 $cacheReadTokens = $event->metadata['cache_read_tokens'] ?? $cacheReadTokens;
 
-                // Extract context-specific tokens if provided (for CLI providers with multi-turn)
-                // These represent the LAST turn's usage for context percentage calculation
-                // Use same preserve-previous pattern as billing tokens for consistency
-                $contextInputTokens = $event->metadata['context_input_tokens'] ?? $contextInputTokens;
-                $contextOutputTokens = $event->metadata['context_output_tokens'] ?? $contextOutputTokens;
+                [$contextInputTokens, $contextOutputTokens] = $this->resolveContextTokens(
+                    $inputTokens,
+                    $outputTokens,
+                    $event->metadata['context_input_tokens'] ?? $contextInputTokens,
+                    $event->metadata['context_output_tokens'] ?? $contextOutputTokens,
+                );
 
                 // Calculate cost using model pricing
                 $cost = null;
@@ -772,33 +777,39 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
 
         $conversation->addTokenUsage($inputTokens, $outputTokens);
 
-        // Update context window tracking
-        // Use context-specific tokens if provided (for CLI providers with multi-turn),
-        // otherwise fall back to billing tokens (correct for API providers)
-        $ctxInput = $contextInputTokens ?? $inputTokens;
-        $ctxOutput = $contextOutputTokens ?? $outputTokens;
-        if ($ctxInput > 0) {
+        [$ctxInput, $ctxOutput] = $this->resolveContextTokens(
+            $inputTokens,
+            $outputTokens,
+            $contextInputTokens,
+            $contextOutputTokens,
+        );
+        if ($ctxInput > 0 || $ctxOutput > 0) {
             $conversation->updateContextUsage($ctxInput, $ctxOutput);
-
-            // Ensure context_window_size is set (for existing conversations that don't have it)
-            if (!$conversation->context_window_size) {
-                $provider = app(\App\Services\ProviderFactory::class)->make($conversation->provider_type);
-                try {
-                    $contextWindow = $provider->getContextWindow($conversation->model);
-                    $conversation->updateContextWindowSize($contextWindow);
-                } catch (\Exception $e) {
-                    // Model not found or provider error - skip (will retry on next turn)
-                    Log::debug('ProcessConversationStream: Failed to get context window', [
-                        'conversation' => $this->conversationUuid,
-                        'model' => $conversation->model,
-                        'provider' => $conversation->provider_type,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
+            $conversation->ensureContextWindowSize();
         }
 
         return $message;
+    }
+
+    /**
+     * Pick the per-turn token counts used to fill the context-window bar.
+     *
+     * Providers either supply explicit context_*_tokens (CLI providers, where
+     * billing input_tokens includes cache and would over-count), or omit them
+     * (API providers, where input_tokens is already the per-turn prompt size).
+     *
+     * @return array{0: int, 1: int} [contextInput, contextOutput]
+     */
+    private function resolveContextTokens(
+        int $inputTokens,
+        int $outputTokens,
+        ?int $contextInputTokens,
+        ?int $contextOutputTokens,
+    ): array {
+        return [
+            $contextInputTokens ?? $inputTokens,
+            $contextOutputTokens ?? $outputTokens,
+        ];
     }
 
     private function saveToolResultMessage(Conversation $conversation, array $toolResults): Message

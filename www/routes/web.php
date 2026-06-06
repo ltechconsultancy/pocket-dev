@@ -17,6 +17,7 @@ use App\Http\Controllers\Auth\SetupController;
 use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ClaudeAuthController;
 use App\Http\Controllers\CodexAuthController;
+use App\Http\Controllers\CursorAuthController;
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\CredentialsController;
 use App\Http\Controllers\EnvironmentController;
@@ -136,6 +137,22 @@ Route::middleware(['auth', 'throttle:10,1'])->group(function () {
     Route::post("/codex/auth/upload-json", [CodexAuthController::class, "uploadJson"])->name("codex.auth.uploadJson");
     Route::delete("/codex/auth/logout", [CodexAuthController::class, "logout"])->name("codex.auth.logout");
 });
+
+// Cursor Agent authentication routes (match Claude/Codex: mutations require login)
+Route::middleware(['auth', 'throttle:10,1'])->group(function () {
+    Route::get("/cursor/auth", [CursorAuthController::class, "index"])->name("cursor.auth");
+    Route::get("/cursor/auth/status", [CursorAuthController::class, "status"])->name("cursor.auth.status");
+    Route::get("/cursor/auth/browser-status", [CursorAuthController::class, "browserAuthStatus"])->name("cursor.auth.browserStatus");
+    Route::post("/cursor/auth/upload-json", [CursorAuthController::class, "uploadJson"])->name("cursor.auth.uploadJson");
+    Route::post("/cursor/auth/browser-start", [CursorAuthController::class, "startBrowserAuth"])->name("cursor.auth.browserStart");
+    Route::delete("/cursor/auth/logout", [CursorAuthController::class, "logout"])->name("cursor.auth.logout");
+});
+// Laptop curl upload: CSRF-exempt, no session cookie — requires one-time upload_token
+// issued only from authenticated GET /cursor/auth (see CursorAuthController::uploadJson)
+Route::post("/api/cursor/auth/upload", [CursorAuthController::class, "uploadJson"])
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
+    ->middleware('throttle:10,1')
+    ->name("cursor.auth.apiUpload");
 
 // Chat - Multi-provider conversation interface
 Route::get("/", [ChatController::class, "index"])->name("chat.index");

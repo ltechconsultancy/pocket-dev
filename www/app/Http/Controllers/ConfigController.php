@@ -300,16 +300,33 @@ class ConfigController extends Controller
      */
     protected function getModelsForProvider(string $provider): array
     {
-        return collect(config("ai.models.{$provider}", []))
+        $models = $this->getModelConfigsForProvider($provider);
+        return collect($models)
             ->mapWithKeys(fn ($m) => [$m['model_id'] => $m['display_name']])
             ->toArray();
     }
 
     protected function getMaxContextPerProvider(string $provider): array
     {
-        return collect(config("ai.models.{$provider}", []))
+        $models = $this->getModelConfigsForProvider($provider);
+        return collect($models)
             ->mapWithKeys(fn ($m) => [$m['model_id'] => $m['max_context_window'] ?? $m['context_window']])
             ->toArray();
+    }
+
+    /**
+     * Get full model configs for a provider.
+     * For cursor_agent: dynamically discovers from CLI, falls back to static config.
+     */
+    private function getModelConfigsForProvider(string $provider): array
+    {
+        if ($provider === 'cursor_agent') {
+            $dynamic = \App\Services\Providers\CursorAgentProvider::discoverModels();
+            if (!empty($dynamic)) {
+                return $dynamic;
+            }
+        }
+        return config("ai.models.{$provider}", []);
     }
 
     /**
@@ -431,6 +448,9 @@ class ConfigController extends Controller
                 'openai_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'claude_code_thinking_tokens' => 'nullable|integer|min:0',
                 'codex_reasoning_effort' => 'nullable|string|in:minimal,low,medium,high,xhigh',
+                'cursor_agent_reasoning_effort' => 'nullable|string|in:low,medium,high,xhigh,max',
+                'cursor_agent_thinking' => 'nullable|in:0,1',
+                'cursor_agent_fast' => 'nullable|in:0,1',
                 'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'response_level' => 'nullable|integer|min:1|max:5',
                 'inherit_workspace_tools' => 'nullable|in:0,1',
@@ -537,6 +557,9 @@ class ConfigController extends Controller
                 'openai_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'claude_code_thinking_tokens' => 'nullable|integer|min:0',
                 'codex_reasoning_effort' => 'nullable|string|in:minimal,low,medium,high,xhigh',
+                'cursor_agent_reasoning_effort' => 'nullable|string|in:low,medium,high,xhigh,max',
+                'cursor_agent_thinking' => 'nullable|in:0,1',
+                'cursor_agent_fast' => 'nullable|in:0,1',
                 'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'response_level' => 'nullable|integer|min:1|max:5',
                 'inherit_workspace_tools' => 'nullable|in:0,1',
@@ -693,6 +716,13 @@ class ConfigController extends Controller
                 : null,
             'codex' => isset($validated['codex_reasoning_effort'])
                 ? ['effort' => $validated['codex_reasoning_effort']]
+                : null,
+            'cursor_agent' => (isset($validated['cursor_agent_reasoning_effort']) || isset($validated['cursor_agent_thinking']) || isset($validated['cursor_agent_fast']))
+                ? [
+                    'effort' => $validated['cursor_agent_reasoning_effort'],
+                    'thinking' => (bool) ($validated['cursor_agent_thinking'] ?? true),
+                    'fast' => (bool) ($validated['cursor_agent_fast'] ?? false),
+                ]
                 : null,
             default => null,
         };

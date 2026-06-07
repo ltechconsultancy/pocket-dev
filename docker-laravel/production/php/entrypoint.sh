@@ -237,6 +237,29 @@ if [ $# -eq 0 ] || [ "$1" = "php-fpm" ]; then
 
     # Run Laravel production optimizations (as www-data, which is in TARGET_GID group)
     echo "Running Laravel optimizations..."
+
+    # Take a pre-migration backup if there are pending migrations.
+    # This guards against data loss when switching branches with incompatible migration histories.
+    PENDING_MIGRATIONS=$(gosu www-data php artisan migrate:status --no-interaction 2>/dev/null | grep -c "Pending" || true)
+    if [ "${PENDING_MIGRATIONS:-0}" -gt 0 ]; then
+        echo "Detected ${PENDING_MIGRATIONS} pending migration(s) — creating pre-migration backup..."
+        BACKUP_DIR="/var/www/storage/app/backups"
+        BACKUP_FILE="${BACKUP_DIR}/pre-migrate-$(date +%Y%m%d_%H%M%S).sql"
+        mkdir -p "$BACKUP_DIR"
+        chown "${TARGET_UID}:33" "$BACKUP_DIR" 2>/dev/null || true
+        if PGPASSWORD="${PD_DB_PASSWORD}" pg_dump \
+            -h "${PD_DB_HOST:-pocket-dev-postgres}" \
+            -p "${PD_DB_PORT:-5432}" \
+            -U "${PD_DB_USERNAME:-pocket-dev}" \
+            "${PD_DB_DATABASE:-pocket-dev}" > "$BACKUP_FILE" 2>/dev/null; then
+            echo "Pre-migration backup saved: ${BACKUP_FILE}"
+            # Keep only the 10 most recent pre-migration backups
+            ls -t "${BACKUP_DIR}"/pre-migrate-*.sql 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
+        else
+            echo "WARN: Pre-migration backup failed — proceeding with migration anyway." >&2
+        fi
+    fi
+
     if ! gosu www-data php artisan migrate --force --no-interaction 2>&1; then
         echo "FATAL: database migrations failed." >&2
         echo "  If you changed PD_DB_PASSWORD: delete the postgres volume in Coolify or restore the old password." >&2

@@ -126,6 +126,20 @@ create_pre_migration_backup() {
     ls -t "${backup_dir}"/pre-migrate-*.sql 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
 }
 
+count_pending_migrations() {
+    local status_output=""
+
+    if ! status_output="$(gosu www-data php artisan migrate:status --no-interaction 2>&1)"; then
+        echo "FATAL: Failed to determine migration status; refusing to run migrations without confirming backup requirements." >&2
+        if [ -n "$status_output" ]; then
+            echo "  migrate:status error: $(printf '%s\n' "$status_output" | tail -n 1)" >&2
+        fi
+        return 1
+    fi
+
+    printf '%s\n' "$status_output" | awk '/Pending/ { count++ } END { print count + 0 }'
+}
+
 # Runtime configurable UID/GID (from compose.yml environment)
 TARGET_UID="${PD_TARGET_UID:-1000}"
 TARGET_GID="${PD_TARGET_GID:-1000}"
@@ -278,7 +292,9 @@ if [ $# -eq 0 ] || [ "$1" = "php-fpm" ]; then
 
     # Take a pre-migration backup if there are pending migrations.
     # This guards against data loss when switching branches with incompatible migration histories.
-    PENDING_MIGRATIONS=$(gosu www-data php artisan migrate:status --no-interaction 2>/dev/null | grep -c "Pending" || true)
+    if ! PENDING_MIGRATIONS="$(count_pending_migrations)"; then
+        exit 1
+    fi
     if [ "${PENDING_MIGRATIONS:-0}" -gt 0 ]; then
         echo "Detected ${PENDING_MIGRATIONS} pending migration(s) — creating pre-migration backup..."
         if ! create_pre_migration_backup; then

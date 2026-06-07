@@ -127,17 +127,60 @@ create_pre_migration_backup() {
 }
 
 count_pending_migrations() {
-    local status_output=""
+    local migrations_table_exists=""
+    local executed_migrations=""
+    local pending_count=0
+    local migration=""
+    local -a local_migrations=()
+    local -A executed_migration_map=()
 
-    if ! status_output="$(gosu www-data php artisan migrate:status --no-interaction 2>&1)"; then
-        echo "FATAL: Failed to determine migration status; refusing to run migrations without confirming backup requirements." >&2
-        if [ -n "$status_output" ]; then
-            echo "  migrate:status error: $(printf '%s\n' "$status_output" | tail -n 1)" >&2
-        fi
+    mapfile -t local_migrations < <(
+        find /var/www/database/migrations -maxdepth 1 -type f -name '*.php' -printf '%f\n' 2>/dev/null \
+            | sed 's/\.php$//' \
+            | sort -u
+    )
+
+    if ! migrations_table_exists="$(
+        PGPASSWORD="${PD_DB_PASSWORD}" psql \
+            "host=${PD_DB_HOST:-pocket-dev-postgres} port=${PD_DB_PORT:-5432} dbname=${PD_DB_DATABASE:-pocket-dev} user=${PD_DB_USERNAME:-pocket-dev} connect_timeout=3" \
+            -Atqc "SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = 'migrations'
+            )"
+    )"; then
+        echo "FATAL: Failed to determine whether the migrations table exists." >&2
         return 1
     fi
 
-    printf '%s\n' "$status_output" | awk '/Pending/ { count++ } END { print count + 0 }'
+    if [ "$migrations_table_exists" != "t" ]; then
+        printf '%s\n' "${#local_migrations[@]}"
+        return 0
+    fi
+
+    if ! executed_migrations="$(
+        PGPASSWORD="${PD_DB_PASSWORD}" psql \
+            "host=${PD_DB_HOST:-pocket-dev-postgres} port=${PD_DB_PORT:-5432} dbname=${PD_DB_DATABASE:-pocket-dev} user=${PD_DB_USERNAME:-pocket-dev} connect_timeout=3" \
+            -Atqc "SELECT migration FROM migrations"
+    )"; then
+        echo "FATAL: Failed to read applied migrations from the database." >&2
+        return 1
+    fi
+
+    while IFS= read -r migration; do
+        if [ -n "$migration" ]; then
+            executed_migration_map["$migration"]=1
+        fi
+    done <<< "$executed_migrations"
+
+    for migration in "${local_migrations[@]}"; do
+        if [ -z "${executed_migration_map[$migration]:-}" ]; then
+            pending_count=$((pending_count + 1))
+        fi
+    done
+
+    printf '%s\n' "$pending_count"
 }
 
 # Runtime configurable UID/GID (from compose.yml environment)

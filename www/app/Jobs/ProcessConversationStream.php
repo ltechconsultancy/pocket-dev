@@ -418,12 +418,9 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                 $cacheCreationTokens = $event->metadata['cache_creation_tokens'] ?? $cacheCreationTokens;
                 $cacheReadTokens = $event->metadata['cache_read_tokens'] ?? $cacheReadTokens;
 
-                // Context tokens: provider may send context_input_tokens; else billing minus cache
                 [$contextInputTokens, $contextOutputTokens] = $this->resolveContextTokens(
                     $inputTokens,
                     $outputTokens,
-                    $cacheCreationTokens,
-                    $cacheReadTokens,
                     $event->metadata['context_input_tokens'] ?? $contextInputTokens,
                     $event->metadata['context_output_tokens'] ?? $contextOutputTokens,
                 );
@@ -966,12 +963,9 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
 
         $conversation->addTokenUsage($inputTokens, $outputTokens);
 
-        // Update context window tracking (prompt + completion only, excludes cache)
         [$ctxInput, $ctxOutput] = $this->resolveContextTokens(
             $inputTokens,
             $outputTokens,
-            $cacheCreationTokens,
-            $cacheReadTokens,
             $contextInputTokens,
             $contextOutputTokens,
         );
@@ -984,22 +978,24 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
     }
 
     /**
-     * Resolve tokens used for context window fill (excludes cache read/write from billing totals).
+     * Pick the per-turn token counts used to fill the context-window bar.
+     *
+     * Providers either supply explicit context_*_tokens (CLI providers, where
+     * billing input_tokens includes cache and would over-count), or omit them
+     * (API providers, where input_tokens is already the per-turn prompt size).
      *
      * @return array{0: int, 1: int} [contextInput, contextOutput]
      */
     private function resolveContextTokens(
         int $inputTokens,
         int $outputTokens,
-        ?int $cacheCreationTokens,
-        ?int $cacheReadTokens,
         ?int $contextInputTokens,
         ?int $contextOutputTokens,
     ): array {
-        $ctxOut = $contextOutputTokens ?? $outputTokens;
-        $ctxIn = $contextInputTokens ?? $inputTokens;
-
-        return [$ctxIn, $ctxOut];
+        return [
+            $contextInputTokens ?? $inputTokens,
+            $contextOutputTokens ?? $outputTokens,
+        ];
     }
 
     private function saveToolResultMessage(Conversation $conversation, array $toolResults): Message

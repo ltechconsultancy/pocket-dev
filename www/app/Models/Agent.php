@@ -28,10 +28,6 @@ class Agent extends Model
     public const PROVIDER_CLAUDE_CODE = 'claude_code';
     /** @deprecated Use Provider::Codex->value instead */
     public const PROVIDER_CODEX = 'codex';
-    /** @deprecated Use Provider::CursorAgent->value instead */
-    public const PROVIDER_CURSOR_AGENT = 'cursor_agent';
-    /** @deprecated Use Provider::OpenAICompatible->value instead */
-    public const PROVIDER_OPENAI_COMPATIBLE = 'openai_compatible';
 
     protected $fillable = [
         'workspace_id',

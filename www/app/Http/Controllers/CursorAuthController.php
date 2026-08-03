@@ -44,15 +44,22 @@ class CursorAuthController extends Controller
      */
     public function uploadJson(Request $request): JsonResponse
     {
-        if ($request->routeIs('cursor.auth.apiUpload')) {
+        // For terminal uploads, capture the token but defer consumption (Cache::pull)
+        // until validation passes — a malformed paste should NOT burn the token.
+        // Pulling after validation keeps one-shot semantics intact (no TOCTOU window
+        // where two concurrent requests both pass a `has` check).
+        $isApiUpload = $request->routeIs('cursor.auth.apiUpload');
+        $uploadTokenKey = null;
+        if ($isApiUpload) {
             $uploadToken = $request->input('upload_token');
             if (!is_string($uploadToken) || $uploadToken === ''
-                || !Cache::pull('cursor_auth_upload:' . $uploadToken)) {
+                || !Cache::has('cursor_auth_upload:' . $uploadToken)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Invalid or expired upload token. Open /cursor/auth and copy a fresh command.',
                 ], 403);
             }
+            $uploadTokenKey = 'cursor_auth_upload:' . $uploadToken;
         }
 
         $validator = Validator::make($request->all(), [
@@ -91,12 +98,34 @@ class CursorAuthController extends Controller
                 mkdir($dir, 0770, true);
             }
 
-            // Save the file
-            file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT));
+            // Save the file. LOCK_EX serializes concurrent PHP writers; it does NOT
+            // coordinate with the `agent` CLI binary (which does not honor advisory locks).
+            $bytes = file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
+            if ($bytes === false) {
+                // Token is intentionally NOT consumed — user can retry without
+                // returning to /cursor/auth for a fresh command. Path is logged
+                // server-side but kept out of the client response.
+                Log::error('[Cursor Auth] Write failed', ['path' => $this->credentialsPath]);
+                throw new \RuntimeException('Failed to write credentials file.');
+            }
 
             // Try to set group-writable permissions (non-fatal if we're not the owner)
             @chmod($dir, 0770);
             @chmod($this->credentialsPath, 0660);
+
+            // Atomically consume the one-time token only after the write succeeded.
+            // If a concurrent request already pulled it, surface the same 403 — the
+            // file write was a no-op duplicate (LOCK_EX serialized us with them).
+            if ($uploadTokenKey !== null && !Cache::pull($uploadTokenKey)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Upload token already used. The credentials were saved by a concurrent request.',
+                ], 403);
+            }
+
+            // New credentials may belong to a different account → drop cached model lists
+            Cache::forget('cursor_agent:models');
+            Cache::forget('cursor_agent:all_model_ids');
 
             Log::info("[Cursor Auth] Credentials saved from JSON input");
 
@@ -107,13 +136,15 @@ class CursorAuthController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            // Log full detail server-side; return a generic message so we don't
+            // leak filesystem paths or other internals to the client.
             Log::error("[Cursor Auth] Failed to save credentials from JSON", [
                 "error" => $e->getMessage(),
             ]);
 
             return response()->json([
                 "success" => false,
-                "message" => "Failed to save credentials: " . $e->getMessage(),
+                "message" => "Failed to save credentials.",
             ], 500);
         }
     }
@@ -141,6 +172,10 @@ class CursorAuthController extends Controller
             if ($settings->hasCursorAgentApiKey()) {
                 $settings->deleteCursorAgentApiKey();
             }
+
+            // Drop cached model lists — they're per-account and may change after re-auth
+            Cache::forget('cursor_agent:models');
+            Cache::forget('cursor_agent:all_model_ids');
 
             return response()->json([
                 "success" => true,

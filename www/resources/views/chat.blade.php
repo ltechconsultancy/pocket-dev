@@ -1869,6 +1869,7 @@
                 sessions: [], // All sessions for current workspace
                 sessionsPage: 1, // Current page for pagination
                 sessionsLastPage: 1, // Last page number
+                sessionsPerPage: 5, // Initial preload + infinite-scroll page size
                 loadingMoreSessions: false, // Loading state for infinite scroll
                 currentSession: null, // Current session object with screens
                 screens: [], // Flat array of screen objects in the current session
@@ -3275,10 +3276,11 @@
                     }
 
                     try {
+                        const pageSize = this.sessionsPerPage;
                         const params = new URLSearchParams({
                             workspace_id: this.currentWorkspaceId,
                             include_archived: this.showArchivedSessions ? '1' : '0',
-                            per_page: Math.min(200, Math.max(20, this.sessionsPage * 20)).toString(),
+                            per_page: Math.min(200, Math.max(pageSize, this.sessionsPage * pageSize)).toString(),
                         });
                         const response = await fetch(`/api/sessions?${params}`);
                         if (!response.ok) {
@@ -3315,9 +3317,9 @@
 
                         // Don't reset sessionsPage — keep it at the user's scroll depth so
                         // fetchMoreSessions continues from the right position.
-                        // Compute last_page relative to the standard page size (20) that
+                        // Compute last_page relative to the standard page size that
                         // fetchMoreSessions uses, not the inflated per_page we sent.
-                        this.sessionsLastPage = data.total ? Math.ceil(data.total / 20) : 1;
+                        this.sessionsLastPage = data.total ? Math.ceil(data.total / pageSize) : 1;
                     } catch (err) {
                         console.error('Failed to refresh sidebar:', err);
                     }
@@ -3894,6 +3896,7 @@
                         const params = new URLSearchParams({
                             workspace_id: this.currentWorkspaceId,
                             include_archived: this.showArchivedSessions ? '1' : '0',
+                            per_page: this.sessionsPerPage.toString(),
                         });
                         console.log('[DEBUG] fetchSessions: Fetching from /api/sessions?' + params.toString());
                         const response = await fetch(`/api/sessions?${params}`);
@@ -3926,6 +3929,7 @@
                         const params = new URLSearchParams({
                             workspace_id: this.currentWorkspaceId,
                             include_archived: this.showArchivedSessions ? '1' : '0',
+                            per_page: this.sessionsPerPage.toString(),
                             page: nextPage.toString(),
                         });
                         console.log('[DEBUG] fetchMoreSessions fetching page:', nextPage);

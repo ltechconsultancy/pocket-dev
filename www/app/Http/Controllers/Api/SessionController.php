@@ -38,7 +38,7 @@ class SessionController extends Controller
             $query->active();
         }
 
-        $sessions = $query->paginate($validated['per_page'] ?? 20);
+        $sessions = $query->paginate($validated['per_page'] ?? 5);
 
         return response()->json($sessions);
     }

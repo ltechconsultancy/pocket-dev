@@ -132,13 +132,92 @@ class ConversationController extends Controller
 
     /**
      * Get a conversation with its messages.
+     *
+     * By default only the most recent turns are returned to keep mobile loads fast.
+     * Query params:
+     * - turns (int, default 5): how many turns to return
+     * - before_turn (int): load turns strictly before this turn number
+     * - around_turn (int): load a window centered on this turn (search jump)
+     * - all (bool): return the full history (avoid on mobile/large chats)
+     * - include_session_screens (bool): nest screen.session.screens for legacy loaders
      */
     public function show(Request $request, Conversation $conversation): JsonResponse
     {
-        $conversation->load(['messages.agent', 'agent', 'screen.session.screens.conversation']);
+        $validated = $request->validate([
+            'turns' => 'nullable|integer|min:1|max:100',
+            'before_turn' => 'nullable|integer|min:0',
+            'around_turn' => 'nullable|integer|min:0',
+            'all' => 'nullable|boolean',
+            'include_session_screens' => 'nullable|boolean',
+        ]);
+
+        $turnsLimit = $validated['turns'] ?? 5;
+
+        // Keep the show payload light: session screens are only needed for the
+        // legacy loadConversation() path that bootstraps the whole session UI.
+        if ($request->boolean('include_session_screens')) {
+            $conversation->load(['agent', 'screen.session.screens.conversation', 'screen.session.screens.panel:id,slug,name']);
+        } else {
+            $conversation->load(['agent', 'screen']);
+        }
+
         $conversation->ensureContextWindowSize();
         $conversation->refreshLastContextTokensFromMessages();
         $conversation->refresh();
+
+        $turnBounds = $conversation->messages()
+            ->reorder()
+            ->toBase()
+            ->selectRaw('MIN(turn_number) as min_turn, MAX(turn_number) as max_turn')
+            ->first();
+
+        $minTurn = $turnBounds?->min_turn !== null ? (int) $turnBounds->min_turn : null;
+        $maxTurn = $turnBounds?->max_turn !== null ? (int) $turnBounds->max_turn : null;
+
+        $messagesQuery = $conversation->messages()->with('agent:id,name')->orderBy('sequence');
+
+        $oldestLoadedTurn = $minTurn;
+        $newestLoadedTurn = $maxTurn;
+
+        if ($minTurn !== null && $maxTurn !== null && !$request->boolean('all')) {
+            if (array_key_exists('around_turn', $validated) && $validated['around_turn'] !== null) {
+                $center = (int) $validated['around_turn'];
+                $half = intdiv($turnsLimit, 2);
+                $from = max($minTurn, $center - $half);
+                $to = min($maxTurn, $from + $turnsLimit - 1);
+                // If clamping to max shrunk the window, shift start left when possible
+                $from = max($minTurn, $to - $turnsLimit + 1);
+                $messagesQuery->whereBetween('turn_number', [$from, $to]);
+                $oldestLoadedTurn = $from;
+                $newestLoadedTurn = $to;
+            } elseif (array_key_exists('before_turn', $validated) && $validated['before_turn'] !== null) {
+                $before = (int) $validated['before_turn'];
+                $from = max($minTurn, $before - $turnsLimit);
+                $messagesQuery
+                    ->where('turn_number', '>=', $from)
+                    ->where('turn_number', '<', $before);
+                $oldestLoadedTurn = $from;
+                $newestLoadedTurn = max($from, $before - 1);
+            } else {
+                $from = max($minTurn, $maxTurn - $turnsLimit + 1);
+                $messagesQuery->where('turn_number', '>=', $from);
+                $oldestLoadedTurn = $from;
+                $newestLoadedTurn = $maxTurn;
+            }
+        }
+
+        $conversation->setRelation('messages', $messagesQuery->get());
+
+        $totals = $conversation->messages()
+            ->reorder()
+            ->toBase()
+            ->selectRaw('COALESCE(SUM(cost), 0) as cost')
+            ->selectRaw('COALESCE(SUM(input_tokens), 0) as input_tokens')
+            ->selectRaw('COALESCE(SUM(output_tokens), 0) as output_tokens')
+            ->selectRaw('COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens')
+            ->selectRaw('COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens')
+            ->selectRaw('COUNT(*) as message_count')
+            ->first();
 
         return response()->json([
             'conversation' => $conversation,
@@ -147,6 +226,22 @@ class ConversationController extends Controller
                 'context_window_size' => $conversation->context_window_size,
                 'usage_percentage' => $conversation->getContextUsagePercentage(),
                 'warning_level' => $conversation->getContextWarningLevel(),
+            ],
+            'messages_meta' => [
+                'has_more' => $oldestLoadedTurn !== null && $minTurn !== null && $oldestLoadedTurn > $minTurn,
+                'oldest_loaded_turn' => $oldestLoadedTurn,
+                'newest_loaded_turn' => $newestLoadedTurn,
+                'min_turn' => $minTurn,
+                'max_turn' => $maxTurn,
+                'turns_limit' => $request->boolean('all') ? null : $turnsLimit,
+            ],
+            'totals' => [
+                'cost' => (float) ($totals->cost ?? 0),
+                'input_tokens' => (int) ($totals->input_tokens ?? 0),
+                'output_tokens' => (int) ($totals->output_tokens ?? 0),
+                'cache_creation_tokens' => (int) ($totals->cache_creation_tokens ?? 0),
+                'cache_read_tokens' => (int) ($totals->cache_read_tokens ?? 0),
+                'message_count' => (int) ($totals->message_count ?? 0),
             ],
         ]);
     }

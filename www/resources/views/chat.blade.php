@@ -1523,6 +1523,18 @@
                     </div>
                 </template>
 
+                {{-- Load earlier turns (history is windowed for performance) --}}
+                <template x-if="hasMoreMessages && messages.length > 0">
+                    <div class="flex justify-center py-2">
+                        <button @click="loadEarlierMessages()"
+                                :disabled="loadingEarlierMessages"
+                                class="text-xs px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 disabled:opacity-50 cursor-pointer">
+                            <span x-show="!loadingEarlierMessages">Load earlier messages</span>
+                            <span x-show="loadingEarlierMessages" x-cloak>Loading…</span>
+                        </button>
+                    </div>
+                </template>
+
                 {{-- Messages List --}}
                 <template x-for="(msg, index) in messages" :key="msg.id">
                     <div :class="msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'"
@@ -1869,8 +1881,12 @@
                 sessions: [], // All sessions for current workspace
                 sessionsPage: 1, // Current page for pagination
                 sessionsLastPage: 1, // Last page number
-                sessionsPerPage: 5, // Initial preload + infinite-scroll page size
+                sessionsPerPage: 20, // Sidebar page size (infinite scroll)
                 loadingMoreSessions: false, // Loading state for infinite scroll
+                hasMoreMessages: false, // Older turns exist beyond the loaded window
+                oldestLoadedTurn: null, // Lowest turn_number currently in messages[]
+                loadingEarlierMessages: false, // Loading older turns
+                recentTurnsLimit: 5, // How many turns to load on open / load-earlier
                 currentSession: null, // Current session object with screens
                 screens: [], // Flat array of screen objects in the current session
                 activeScreenId: null, // Currently active screen ID
@@ -3339,6 +3355,9 @@
                     this.currentConversationTitle = null; // Reset title for new conversation
                     this.conversationProvider = null; // Reset for new conversation
                     this._messageStore.clearMessages();
+                    this.hasMoreMessages = false;
+                    this.oldestLoadedTurn = null;
+                    this.loadingEarlierMessages = false;
 
                     // Clear session/screen state for new conversation
                     this.currentSession = null;
@@ -3636,7 +3655,10 @@
                     this._streamStore.prepareForConversationSwitch();
 
                     try {
-                        const response = await fetch(`/api/conversations/${uuid}`);
+                        const response = await fetch(this.buildConversationShowUrl(uuid, {
+                            includeSessionScreens: true,
+                            aroundTurn: this.pendingScrollToTurn,
+                        }));
                         if (!response.ok) {
                             throw new Error(`HTTP ${response.status}`);
                         }
@@ -3727,27 +3749,8 @@
                         this.cacheReadTokens = 0;
                         this.sessionCost = 0;
 
-                        // Calculate totals and sum costs from stored values
-                        if (data.conversation?.messages) {
-                            for (const msg of data.conversation.messages) {
-                                const inputToks = msg.input_tokens || 0;
-                                const outputToks = msg.output_tokens || 0;
-                                const cacheCreate = msg.cache_creation_tokens || 0;
-                                const cacheRead = msg.cache_read_tokens || 0;
-
-                                this.inputTokens += inputToks;
-                                this.outputTokens += outputToks;
-                                this.cacheCreationTokens += cacheCreate;
-                                this.cacheReadTokens += cacheRead;
-
-                                // Use stored cost (calculated server-side)
-                                if (msg.cost) {
-                                    this.sessionCost += msg.cost;
-                                }
-                            }
-                        }
-
-                        this.totalTokens = this.inputTokens + this.outputTokens;
+                        this.applyConversationTotals(data);
+                        this.applyMessagesMeta(data);
 
                         // Load context window tracking data
                         if (data.context) {
@@ -4079,7 +4082,9 @@
                     const targetTurn = this.pendingScrollToTurn;
 
                     try {
-                        const response = await fetch(`/api/conversations/${uuid}`);
+                        const response = await fetch(this.buildConversationShowUrl(uuid, {
+                            aroundTurn: targetTurn,
+                        }));
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         const data = await response.json();
 
@@ -4093,24 +4098,14 @@
                         this.autoScrollEnabled = targetTurn === null;
                         this.ignoreScrollEvents = true;
 
-                        // Reset counters
+                        // Reset counters then apply full-conversation totals (not just loaded window)
                         this.inputTokens = 0;
                         this.outputTokens = 0;
                         this.cacheCreationTokens = 0;
                         this.cacheReadTokens = 0;
                         this.sessionCost = 0;
-
-                        // Sum costs from messages
-                        if (data.conversation?.messages) {
-                            for (const msg of data.conversation.messages) {
-                                this.inputTokens += msg.input_tokens || 0;
-                                this.outputTokens += msg.output_tokens || 0;
-                                this.cacheCreationTokens += msg.cache_creation_tokens || 0;
-                                this.cacheReadTokens += msg.cache_read_tokens || 0;
-                                if (msg.cost) this.sessionCost += msg.cost;
-                            }
-                        }
-                        this.totalTokens = this.inputTokens + this.outputTokens;
+                        this.applyConversationTotals(data);
+                        this.applyMessagesMeta(data);
 
                         // Load context tracking
                         if (data.context) {
@@ -5439,6 +5434,107 @@
                 },
 
                 // ===== Message Methods (Sprint 3: delegate to _messageStore) =====
+
+                /**
+                 * Build /api/conversations/{uuid} URL with history windowing params.
+                 */
+                buildConversationShowUrl(uuid, {
+                    includeSessionScreens = false,
+                    aroundTurn = null,
+                    beforeTurn = null,
+                    turns = null,
+                } = {}) {
+                    const params = new URLSearchParams();
+                    params.set('turns', String(turns ?? this.recentTurnsLimit ?? 5));
+                    if (includeSessionScreens) {
+                        params.set('include_session_screens', '1');
+                    }
+                    if (aroundTurn !== null && aroundTurn !== undefined) {
+                        params.set('around_turn', String(aroundTurn));
+                    }
+                    if (beforeTurn !== null && beforeTurn !== undefined) {
+                        params.set('before_turn', String(beforeTurn));
+                    }
+                    return `/api/conversations/${uuid}?${params.toString()}`;
+                },
+
+                applyConversationTotals(data) {
+                    const totals = data?.totals;
+                    if (!totals) {
+                        // Fallback: sum only the loaded window
+                        this.inputTokens = 0;
+                        this.outputTokens = 0;
+                        this.cacheCreationTokens = 0;
+                        this.cacheReadTokens = 0;
+                        this.sessionCost = 0;
+                        for (const msg of (data?.conversation?.messages || [])) {
+                            this.inputTokens += msg.input_tokens || 0;
+                            this.outputTokens += msg.output_tokens || 0;
+                            this.cacheCreationTokens += msg.cache_creation_tokens || 0;
+                            this.cacheReadTokens += msg.cache_read_tokens || 0;
+                            if (msg.cost) this.sessionCost += msg.cost;
+                        }
+                        this.totalTokens = this.inputTokens + this.outputTokens;
+                        return;
+                    }
+
+                    this.inputTokens = totals.input_tokens || 0;
+                    this.outputTokens = totals.output_tokens || 0;
+                    this.cacheCreationTokens = totals.cache_creation_tokens || 0;
+                    this.cacheReadTokens = totals.cache_read_tokens || 0;
+                    this.sessionCost = totals.cost || 0;
+                    this.totalTokens = this.inputTokens + this.outputTokens;
+                },
+
+                applyMessagesMeta(data) {
+                    const meta = data?.messages_meta;
+                    this.hasMoreMessages = !!meta?.has_more;
+                    this.oldestLoadedTurn = meta?.oldest_loaded_turn ?? null;
+                },
+
+                /**
+                 * Prefetch older turns and prepend them while preserving scroll position.
+                 */
+                async loadEarlierMessages() {
+                    if (!this.currentConversationUuid || !this.hasMoreMessages || this.loadingEarlierMessages) {
+                        return;
+                    }
+                    if (this.oldestLoadedTurn === null || this.oldestLoadedTurn === undefined) {
+                        return;
+                    }
+
+                    this.loadingEarlierMessages = true;
+                    const container = document.getElementById('messages');
+                    const prevHeight = container?.scrollHeight || 0;
+                    const prevTop = container?.scrollTop || 0;
+
+                    try {
+                        const response = await fetch(this.buildConversationShowUrl(this.currentConversationUuid, {
+                            beforeTurn: this.oldestLoadedTurn,
+                        }));
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const data = await response.json();
+                        const older = data.conversation?.messages || [];
+                        if (older.length === 0) {
+                            this.applyMessagesMeta(data);
+                            return;
+                        }
+
+                        const uiMessages = this._messageStore?._convertAllDbMessages(older) || [];
+                        this._messageStore.prependMessages(uiMessages);
+                        this.applyMessagesMeta(data);
+
+                        await this.$nextTick();
+                        if (container) {
+                            container.scrollTop = prevTop + (container.scrollHeight - prevHeight);
+                        }
+                    } catch (err) {
+                        console.error('Failed to load earlier messages:', err);
+                        this.showError('Failed to load earlier messages');
+                    } finally {
+                        this.loadingEarlierMessages = false;
+                    }
+                },
 
                 /**
                  * Progressive message loading - delegates to messageStore

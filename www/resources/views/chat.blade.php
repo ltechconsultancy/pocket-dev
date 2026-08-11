@@ -1162,7 +1162,12 @@
             opacity: 0.7;
         }
 
-        .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        /* iOS only: Android already places fixed bottom above the system nav,
+           so env(safe-area-inset-bottom) there creates an empty grey strip. */
+        .safe-area-bottom { padding-bottom: 0; }
+        @supports (-webkit-touch-callout: none) {
+            .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
+        }
 
         /* Mobile: fixed layout with contained scrolling */
         @media (max-width: 767px) {

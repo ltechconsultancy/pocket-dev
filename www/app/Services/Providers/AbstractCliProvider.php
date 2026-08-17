@@ -431,6 +431,7 @@ abstract class AbstractCliProvider implements AIProviderInterface, HasNativeSess
         $buffer = '';
         $state = $this->initParseState();
         $firstDataReceived = false;
+        $cliErrorLines = []; // Collect non-JSON error lines (e.g. "RetriableError: [resource_exhausted]")
         $waitingForDataStart = microtime(true);
 
         try {
@@ -479,9 +480,14 @@ abstract class AbstractCliProvider implements AIProviderInterface, HasNativeSess
 
                         // Guard against non-array JSON
                         if (!is_array($parsedLine)) {
+                            $trimmedLine = trim($line);
                             Log::channel('api')->warning($this->getProviderType() . ': Non-array JSONL line', [
-                                'line' => substr($line, 0, 500),
+                                'line' => substr($trimmedLine, 0, 500),
                             ]);
+                            // Collect non-empty, non-JSON lines as potential error messages
+                            if ($trimmedLine !== '') {
+                                $cliErrorLines[] = $trimmedLine;
+                            }
                             continue;
                         }
 
@@ -659,7 +665,16 @@ abstract class AbstractCliProvider implements AIProviderInterface, HasNativeSess
             if ($exitCode !== 0) {
                 Log::channel('api')->warning($this->getProviderType() . ': CLI exited with non-zero code', [
                     'exit_code' => $exitCode,
+                    'cli_error_lines' => $cliErrorLines,
                 ]);
+
+                // If the CLI crashed without producing any content, emit an error event
+                // so the UI shows the error instead of a blank conversation.
+                $hasContent = $state['blockIndex'] > 0 || $state['inputTokens'] > 0;
+                if (!$hasContent && !empty($cliErrorLines)) {
+                    $errorMessage = implode("\n", $cliErrorLines);
+                    yield StreamEvent::error($errorMessage);
+                }
             }
 
             // Log completion

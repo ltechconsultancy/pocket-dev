@@ -1859,10 +1859,38 @@
                 currentConversationStatus: null, // Current conversation status (idle, processing, archived, failed)
                 showConversationMenu: false, // Dropdown menu visibility
                 conversationProvider: null, // Provider of current conversation (for mid-convo agent switch)
+                followUpsByConversation: {},
+                sessionUiState: {},
+
+                setFollowUpsFor(uuid, items) {
+                    if (!uuid) return;
+                    this.followUpsByConversation = {
+                        ...this.followUpsByConversation,
+                        [uuid]: Array.isArray(items) ? items : [],
+                    };
+                },
+                get queuedFollowUps() {
+                    const uuid = this.activeChatConversationUuid();
+                    if (!uuid) return [];
+                    return this.followUpsByConversation[uuid] || [];
+                },
+                set queuedFollowUps(items) {
+                    const uuid = this.activeChatConversationUuid();
+                    if (!uuid) return;
+                    this.setFollowUpsFor(uuid, items);
+                },
 
                 // Stream state proxies (Sprint 3: delegate to _streamStore)
                 get isStreaming() { return this._streamStore?.isStreaming ?? false; },
                 set isStreaming(val) { if (this._streamStore) this._streamStore.isStreaming = val; },
+                get canQueueFollowUp() {
+                    if (!this.isStreaming || this._streamState.abortPending) return false;
+                    const streamUuid = this._streamStore?._connectedUuid;
+                    const activeUuid = this.activeChatConversationUuid();
+                    if (!streamUuid || !activeUuid || streamUuid !== activeUuid) return false;
+                    const provider = this.conversationProvider || this.provider || this.currentAgent?.provider;
+                    return provider === 'cursor_agent';
+                },
                 get _streamState() { return this._streamStore?._streamState ?? {}; },
                 set _streamState(val) { if (this._streamStore) this._streamStore._streamState = val; },
                 get _isReplaying() { return this._streamStore?._isReplaying ?? false; },
@@ -2142,6 +2170,18 @@
                     this._initDone = true;
                     this.debugLog('init() started');
 
+                    try {
+                        const raw = sessionStorage.getItem('pocketdev_session_ui');
+                        if (raw) {
+                            const parsed = JSON.parse(raw);
+                            if (parsed && typeof parsed === 'object') {
+                                this.sessionUiState = parsed;
+                            }
+                        }
+                    } catch (e) {
+                        this.sessionUiState = {};
+                    }
+
                     // === Initialize Stores (Sprint 3: Frontend Extraction) ===
                     const self = this;
 
@@ -2163,11 +2203,21 @@
                         dispatch: (event) => this.$dispatch(event),
                         showError: (msg) => this.showError(msg),
                         debugLog: (msg, data) => this.debugLog(msg, data),
+                        onStreamEvent: (event) => this.handleStreamEvent(event),
                         onStreamStart: () => {
-                            this.currentConversationStatus = 'processing';
+                            const uuid = this._streamStore?._connectedUuid;
+                            if (!uuid || uuid === this.currentConversationUuid) {
+                                this.currentConversationStatus = 'processing';
+                            }
                         },
                         onStreamEnd: (status) => {
-                            this.currentConversationStatus = status === 'failed' ? 'failed' : 'idle';
+                            const uuid = this._streamStore?._connectedUuid;
+                            if (!uuid || uuid === this.currentConversationUuid) {
+                                this.currentConversationStatus = status === 'failed' ? 'failed' : 'idle';
+                            }
+                            if (uuid) {
+                                this.syncFollowUpsFromServer(uuid);
+                            }
                         },
                         onAbortCleanup: (state) => {
                             // Clean up in-progress streaming messages on abort
@@ -2214,6 +2264,12 @@
                                 timestamp: new Date().toISOString(),
                             });
                             this.scrollToBottom();
+                        },
+                        setQueuedFollowUps: (items, uuid) => {
+                            this.setFollowUpsFor(
+                                uuid || this._streamStore?._connectedUuid || this.currentConversationUuid,
+                                items
+                            );
                         },
                         getModel: () => this.model,
                         getCurrentAgent: () => this.currentAgent,
@@ -3347,6 +3403,8 @@
                 },
 
                 async newConversation() {
+                    this.persistSessionUi();
+                    this.prompt = '';
                     // Reset all stream state before switching
                     this._streamStore.prepareForConversationSwitch();
                     this.isStreaming = false;
@@ -3877,6 +3935,7 @@
 
                         // Check if there's an active stream for this conversation
                         await this.checkAndReconnectStream(uuid);
+                        await this.syncFollowUpsFromServer();
 
                     } catch (err) {
                         this.loadingConversation = false;
@@ -3975,6 +4034,10 @@
                 // Load a session by ID
                 async loadSession(sessionId) {
                     console.log('[DEBUG] loadSession called:', sessionId);
+                    const previousSessionId = this.currentSession?.id;
+                    if (previousSessionId && previousSessionId !== sessionId) {
+                        this.persistSessionUi(previousSessionId);
+                    }
                     try {
                         const response = await fetch(`/api/sessions/${sessionId}`);
                         if (!response.ok) throw new Error('Failed to load session');
@@ -4006,6 +4069,10 @@
                         // Set session state
                         this.currentSession = session;
                         this.screens = session.screens || [];
+
+                        if (previousSessionId !== session.id) {
+                            this.restoreSessionUi(session.id);
+                        }
 
                         // Build lookup map
                         this._screenMap = {};
@@ -4062,8 +4129,11 @@
                             this._screenMap[screen.id] = screen;
                         }
 
-                        // Update to the newly active screen (the one that was just opened)
-                        if (session.last_active_screen_id && session.last_active_screen_id !== this.activeScreenId) {
+                        // Don't steal the active screen while the user is composing or has queued follow-ups
+                        const composing = !!this.prompt.trim()
+                            || this.queuedFollowUps.length > 0
+                            || document.activeElement?.tagName === 'TEXTAREA';
+                        if (!composing && session.last_active_screen_id && session.last_active_screen_id !== this.activeScreenId) {
                             this.activeScreenId = session.last_active_screen_id;
                             const activeScreen = this.getScreen(this.activeScreenId);
 
@@ -4176,6 +4246,7 @@
                         });
 
                         await this.checkAndReconnectStream(uuid);
+                        await this.syncFollowUpsFromServer();
 
                     } catch (err) {
                         this.loadingConversation = false;
@@ -4187,6 +4258,7 @@
                 // Create a new session
                 async newSession() {
                     if (!this.currentWorkspaceId) return;
+                    this.persistSessionUi();
 
                     try {
                         const response = await fetch('/api/sessions', {
@@ -4546,6 +4618,7 @@
                 handleSwipeStart(e) {
                     // Only enable swipe on mobile and when we have multiple screens
                     if (this.windowWidth >= 768 || this.screens.length <= 1) return;
+                    if (e.target.closest('.js-chat-input')) return;
 
                     // Don't activate swipe if touch started in a horizontally scrollable area
                     if (this.isInHorizontalScrollArea(e.target)) return;
@@ -5576,12 +5649,62 @@
                     }
                 },
 
+                persistSessionUi(sessionId = this.currentSession?.id) {
+                    if (!sessionId) return;
+                    this.sessionUiState = {
+                        ...this.sessionUiState,
+                        [sessionId]: { prompt: this.prompt || '' },
+                    };
+                    try {
+                        sessionStorage.setItem('pocketdev_session_ui', JSON.stringify(this.sessionUiState));
+                    } catch (e) {
+                        // sessionStorage might be unavailable
+                    }
+                },
+
+                restoreSessionUi(sessionId) {
+                    this.prompt = this.sessionUiState[sessionId]?.prompt || '';
+                },
+
+                activeChatConversationUuid() {
+                    const screen = this.getScreen(this.activeScreenId);
+                    if (screen?.type === 'chat' && screen.conversation?.uuid) {
+                        return screen.conversation.uuid;
+                    }
+                    return this.currentConversationUuid;
+                },
+
+                bindToActiveChatConversation() {
+                    const uuid = this.activeChatConversationUuid();
+                    if (uuid) {
+                        this.currentConversationUuid = uuid;
+                    }
+                },
+
+                async syncFollowUpsFromServer(uuid = null) {
+                    uuid = uuid || this.currentConversationUuid;
+                    if (!uuid) return;
+                    try {
+                        const response = await fetch(`/api/conversations/${uuid}/follow-ups`);
+                        const data = await response.json();
+                        this.setFollowUpsFor(uuid, Array.isArray(data.queue) ? data.queue : []);
+                    } catch (e) {
+                        this.setFollowUpsFor(uuid, []);
+                    }
+                },
+
                 async sendMessage() {
                     const attachments = Alpine.store('attachments');
 
+                    // Always send to this session's active chat, never a stale UUID from another session
+                    this.bindToActiveChatConversation();
+
                     // Allow sending if there's text OR files OR active skill
-                    if (!this.prompt.trim() && !attachments.hasFiles && !this.activeSkill) return;
-                    if (this.isStreaming) return;
+                    if (!this.prompt.trim() && !attachments.hasFiles && !this.activeSkill && this.queuedFollowUps.length === 0) return;
+                    if (this.isStreaming && !this.canQueueFollowUp) {
+                        this.showError('Wait for the current response to finish, or tap Stop.');
+                        return;
+                    }
 
                     // Block sending while conversation is being loaded (prevents race conditions)
                     if (this.loadingConversation) {
@@ -5642,7 +5765,34 @@
                         }
                     }
 
+                    if (this.isStreaming) {
+                        if (!this.canQueueFollowUp || !this.currentConversationUuid) return;
+                        this.prompt = '';
+                        this.persistSessionUi();
+                        attachments.clear(false);
+                        await this.queueFollowUpMessage(userPrompt);
+                        return;
+                    }
+
+                    const leftoverUuid = this.currentConversationUuid;
+                    const leftoverItems = [...(this.followUpsByConversation[leftoverUuid] || [])];
+                    const typedPrompt = userPrompt;
+                    if (leftoverItems.length > 0) {
+                        const parts = leftoverItems
+                            .map((item) => {
+                                const ts = (item.queued_at || '').trim();
+                                const p = (item.prompt || '').trim();
+                                return p ? (ts ? `${ts}: ${p}` : p) : '';
+                            })
+                            .filter(Boolean);
+                        if (parts.length) {
+                            const leftover = 'This prompt was added mid stream: ' + parts.join('. ');
+                            userPrompt = typedPrompt.trim() ? leftover + '\n\n' + typedPrompt : leftover;
+                        }
+                    }
+
                     this.prompt = '';
+                    this.persistSessionUi();
 
                     // Validate agent exists in current workspace
                     const agentValid = this.currentAgentId && this.agents.some(a => a.id === this.currentAgentId);
@@ -5658,7 +5808,7 @@
                         return;
                     }
 
-                    // Create conversation if needed
+                    // Create conversation if needed — never when this session already has a chat
                     if (!this.currentConversationUuid) {
 
                         try {
@@ -5719,7 +5869,7 @@
                         // Build stream request body
                         // NOTE: Reasoning/thinking settings are loaded from the agent on the backend
                         const streamBody = {
-                            prompt: userPrompt,
+                            prompt: typedPrompt,
                             response_level: this.responseLevel,
                             model: this.model
                         };
@@ -5735,9 +5885,12 @@
 
                         if (!data.success) {
                             this.showError(data.error || 'Failed to start streaming');
-                            this.prompt = userPrompt; // Restore prompt so user can retry
+                            this.prompt = typedPrompt; // Restore prompt so user can retry
+                            this.setFollowUpsFor(leftoverUuid, leftoverItems);
                             return;
                         }
+
+                        this.setFollowUpsFor(leftoverUuid, []);
 
                         // Capture the stream start timestamp for accurate message times
                         if (data.started_at) {
@@ -5773,8 +5926,75 @@
                     return this._streamStore?.abortStream();
                 },
 
+                async queueFollowUpMessage(prompt) {
+                    const uuid = this.currentConversationUuid;
+                    if (!uuid) return;
+                    try {
+                        const response = await fetch(`/api/conversations/${uuid}/follow-ups`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                            },
+                            body: JSON.stringify({ prompt }),
+                        });
+                        const data = await response.json();
+                        if (!data.success) {
+                            this.showError(data.error || 'Failed to queue follow-up');
+                            this.prompt = prompt;
+                            return;
+                        }
+                        this.setFollowUpsFor(uuid, data.queue || []);
+                    } catch (err) {
+                        this.showError('Failed to queue follow-up: ' + err.message);
+                        this.prompt = prompt;
+                    }
+                },
+
+                async cancelFollowUp(id) {
+                    const uuid = this.currentConversationUuid;
+                    if (!uuid) return;
+                    try {
+                        const response = await fetch(`/api/conversations/${uuid}/follow-ups/${id}`, {
+                            method: 'DELETE',
+                            headers: {
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || '',
+                            },
+                        });
+                        const data = await response.json();
+                        const fallback = (this.followUpsByConversation[uuid] || []).filter(item => item.id !== id);
+                        this.setFollowUpsFor(uuid, data.queue || fallback);
+                    } catch (err) {
+                        this.showError('Failed to cancel follow-up: ' + err.message);
+                    }
+                },
+
                 // Handle a single stream event - delegates to _streamStore
                 handleStreamEvent(event) {
+                    // Follow-up user turns must update Alpine `messages` directly.
+                    // The Vite bundle can lag behind Blade, and messageStore.push
+                    // does not always trigger the chat list to re-render.
+                    if (event.type === 'user_message') {
+                        const streamUuid = this._streamStore?._connectedUuid;
+                        this.setFollowUpsFor(streamUuid, []);
+                        if (streamUuid && streamUuid !== this.currentConversationUuid) {
+                            return;
+                        }
+                        const content = event.content || '';
+                        const last = this.messages[this.messages.length - 1];
+                        if (!(last?.role === 'user' && last.content === content)) {
+                            this.messages.push({
+                                id: 'msg-' + Date.now() + '-followup',
+                                role: 'user',
+                                content,
+                                timestamp: new Date().toISOString(),
+                                collapsed: false,
+                            });
+                        }
+                        this._streamStore?.resetStreamState();
+                        this.scrollToBottom();
+                        return;
+                    }
                     return this._streamStore?.handleStreamEvent(event);
                 },
 

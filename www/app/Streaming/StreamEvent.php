@@ -29,6 +29,8 @@ class StreamEvent
     public const COMPACTION_SUMMARY = 'compaction_summary';
     public const SCREEN_CREATED = 'screen_created';
     public const HEARTBEAT = 'heartbeat';
+    public const USER_MESSAGE = 'user_message';
+    public const TURN_INTERRUPTED = 'turn_interrupted';
 
     /**
      * Unique event ID for reliable event tracking.
@@ -215,6 +217,22 @@ class StreamEvent
     public static function heartbeat(): self
     {
         return new self(self::HEARTBEAT);
+    }
+
+    /**
+     * Queued follow-up that was injected as a new user turn mid-stream.
+     */
+    public static function userMessage(string $content): self
+    {
+        return new self(self::USER_MESSAGE, null, $content);
+    }
+
+    /**
+     * Current assistant turn was interrupted to inject queued follow-ups.
+     */
+    public static function turnInterrupted(string $reason = 'queued_followup'): self
+    {
+        return new self(self::TURN_INTERRUPTED, null, null, ['reason' => $reason]);
     }
 
     /**

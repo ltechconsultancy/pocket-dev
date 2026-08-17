@@ -11,6 +11,8 @@ use App\Models\Session;
 use App\Models\Workspace;
 use App\Services\ConversationFactory;
 use App\Services\ConversationStreamLogger;
+use App\Services\CursorFollowUpPrompt;
+use App\Services\CursorFollowUpQueue;
 use App\Services\ModelRepository;
 use App\Services\NativeToolService;
 use App\Services\ProviderFactory;
@@ -33,6 +35,7 @@ class ConversationController extends Controller
         private StreamManager $streamManager,
         private ConversationFactory $conversationFactory,
         private ModelRepository $models,
+        private CursorFollowUpQueue $followUpQueue,
     ) {}
 
     /**
@@ -301,7 +304,7 @@ class ConversationController extends Controller
 
         try {
             $validated = $request->validate([
-            'prompt' => 'required|string',
+            'prompt' => 'nullable|string',
             'model' => 'nullable|string|max:100',
             // Provider-specific reasoning settings
             'anthropic_thinking_budget' => 'nullable|integer|min:0|max:128000',
@@ -316,6 +319,18 @@ class ConversationController extends Controller
             // Legacy support - will be converted to provider-specific
             'thinking_level' => 'nullable|integer|min:0|max:4',
         ]);
+
+        $prompt = (string) ($validated['prompt'] ?? '');
+        $hasLeftoverFollowUps = $conversation->provider_type === 'cursor_agent'
+            && $this->followUpQueue->hasItems($conversation->uuid);
+        if (trim($prompt) === '' && !$hasLeftoverFollowUps) {
+            RequestFlowLogger::endRequest('error_empty_prompt');
+            return response()->json([
+                'success' => false,
+                'error' => 'Prompt is required',
+            ], 422);
+        }
+        $validated['prompt'] = $prompt;
 
         RequestFlowLogger::log('controller.stream.validated', 'Request validated', [
             'prompt_length' => strlen($validated['prompt']),
@@ -435,6 +450,20 @@ class ConversationController extends Controller
         // Initialize stream state BEFORE cleanup to prevent race condition
         // This ensures clients won't see 'not_found' after cleanup and before job starts
         RequestFlowLogger::log('controller.stream.initializing', 'Initializing stream state in Redis');
+
+        if ($conversation->provider_type === 'cursor_agent') {
+            $leftover = $this->followUpQueue->drain($conversation->uuid);
+            if ($leftover !== []) {
+                $formatted = CursorFollowUpPrompt::format($leftover);
+                $merged = trim($validated['prompt']) === '' ? $formatted : $formatted."\n\n".$validated['prompt'];
+                $validated['prompt'] = $merged;
+                RequestFlowLogger::log('controller.stream.leftover_followups', 'Prepended leftover follow-ups after abort', [
+                    'queued_count' => count($leftover),
+                    'prompt_length' => strlen($merged),
+                ]);
+            }
+        }
+
         $this->streamManager->startStream($conversation->uuid, [
             'model' => $conversation->model,
             'provider' => $conversation->provider_type,
@@ -493,6 +522,9 @@ class ConversationController extends Controller
             'last_event_id' => $lastEvent['event_id'] ?? null,  // For reconnection verification
             'metadata' => $metadata,
             'conversation_status' => $conversation->status,
+            'queued_followups' => $conversation->provider_type === 'cursor_agent'
+                ? $this->followUpQueue->list($conversation->uuid)
+                : [],
         ]);
     }
 
@@ -813,6 +845,60 @@ class ConversationController extends Controller
             'success' => true,
             'message' => 'Abort signal sent',
         ]);
+    }
+
+    /**
+     * Queue a follow-up prompt for a running Cursor Agent stream.
+     *
+     * The current tool call is allowed to finish, then the CLI is interrupted
+     * and the queued prompts are sent as one new user turn.
+     */
+    public function queueFollowUp(Request $request, Conversation $conversation): JsonResponse
+    {
+        if ($conversation->provider_type !== 'cursor_agent') {
+            return response()->json([
+                'success' => false,
+                'error' => 'Follow-up queue is only available for Cursor Agent conversations',
+            ], 422);
+        }
+
+        if (!$this->streamManager->isStreaming($conversation->uuid)) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Conversation is not currently streaming',
+            ], 409);
+        }
+
+        $validated = $request->validate([
+            'prompt' => 'required|string|max:100000',
+        ]);
+
+        $item = $this->followUpQueue->enqueue($conversation->uuid, $validated['prompt']);
+
+        return response()->json([
+            'success' => true,
+            'queued' => true,
+            'item' => $item,
+            'queue' => $this->followUpQueue->list($conversation->uuid),
+        ]);
+    }
+
+    public function listFollowUps(Conversation $conversation): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'queue' => $this->followUpQueue->list($conversation->uuid),
+        ]);
+    }
+
+    public function cancelFollowUp(Conversation $conversation, string $followUpId): JsonResponse
+    {
+        $removed = $this->followUpQueue->remove($conversation->uuid, $followUpId);
+
+        return response()->json([
+            'success' => $removed,
+            'queue' => $this->followUpQueue->list($conversation->uuid),
+        ], $removed ? 200 : 404);
     }
 
     /**

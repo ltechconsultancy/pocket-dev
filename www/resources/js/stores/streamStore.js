@@ -15,6 +15,7 @@ export function createStreamStore(callbacks) {
     return {
         // === Connection State ===
         isStreaming: false,
+        _connectedUuid: null,
         lastEventIndex: 0,
         lastEventId: null,
         streamAbortController: null,
@@ -256,6 +257,7 @@ export function createStreamStore(callbacks) {
         prepareForConversationSwitch() {
             this.disconnectFromStream();
             this.isStreaming = false;
+            this._connectedUuid = null;
             this._streamConnectNonce++;  // Invalidate any in-flight connectToStreamEvents retries
             this.resetStreamState();
             this.lastEventIndex = 0;
@@ -295,26 +297,39 @@ export function createStreamStore(callbacks) {
                 }
 
                 if (data.is_streaming) {
+                    if (data.queued_followups) {
+                        callbacks.setQueuedFollowUps?.(data.queued_followups, uuid);
+                    }
                     // Detect: page refresh vs timeout/tab-switch reconnect
                     const isPageRefresh = !callbacks.messageStore.hasActiveStreamingContent();
                     const isTabReturn = this._wasStreamingBeforeHidden;
 
                     let fromIndex;
                     if (isPageRefresh && !isTabReturn) {
-                        // PAGE REFRESH: Always replay from 0 to rebuild lost content
-                        // On page refresh, the messages array is reloaded from DB which
-                        // doesn't include in-flight streaming content. We must replay
-                        // all SSE events to rebuild the assistant response.
-                        // Note: savedIndex tracks SSE events received in-memory, but those
-                        // events built content that's now lost (page reload cleared JS state
-                        // and DB doesn't have in-flight content). Resuming from savedIndex
-                        // would skip events needed to rebuild.
-                        this._resetStreamStateForReplay();
-                        this._isReplaying = true;
-                        // Store event_count as high-water mark: events with index >= this are live
-                        this._replayHighWaterMark = data.event_count ?? 0;
-                        fromIndex = 0;
-                        console.log('[Stream] Page refresh - replaying from 0 to rebuild content, highWaterMark:', this._replayHighWaterMark);
+                        const followupReplayFrom = data.metadata?.followup_replay_from;
+                        if (Number.isInteger(followupReplayFrom) && followupReplayFrom > 0) {
+                            // Follow-up was injected mid-stream: earlier turns are already in the DB.
+                            this._resetStreamStateForReplay();
+                            this._isReplaying = true;
+                            this._replayHighWaterMark = data.event_count ?? 0;
+                            fromIndex = followupReplayFrom;
+                            console.log('[Stream] Page refresh after follow-up - replaying from checkpoint', fromIndex);
+                        } else {
+                            // PAGE REFRESH: Always replay from 0 to rebuild lost content
+                            // On page refresh, the messages array is reloaded from DB which
+                            // doesn't include in-flight streaming content. We must replay
+                            // all SSE events to rebuild the assistant response.
+                            // Note: savedIndex tracks SSE events received in-memory, but those
+                            // events built content that's now lost (page reload cleared JS state
+                            // and DB doesn't have in-flight content). Resuming from savedIndex
+                            // would skip events needed to rebuild.
+                            this._resetStreamStateForReplay();
+                            this._isReplaying = true;
+                            // Store event_count as high-water mark: events with index >= this are live
+                            this._replayHighWaterMark = data.event_count ?? 0;
+                            fromIndex = 0;
+                            console.log('[Stream] Page refresh - replaying from 0 to rebuild content, highWaterMark:', this._replayHighWaterMark);
+                        }
                     } else {
                         // TIMEOUT RECONNECT or TAB RETURN
                         this._restoreStreamState(uuid);
@@ -363,6 +378,7 @@ export function createStreamStore(callbacks) {
                 lastEventId: this.lastEventId,
             });
 
+            this._connectedUuid = uuid;
             this.isStreaming = true;
             callbacks.onStreamStart();
 
@@ -517,7 +533,14 @@ export function createStreamStore(callbacks) {
                             // Handle regular stream events
                             this._lastKeepaliveAt = Date.now();
                             this._connectionHealthy = true;
-                            this.handleStreamEvent(event);
+                            if (callbacks.getConversationUuid() !== uuid) {
+                                continue;
+                            }
+                            if (typeof callbacks.onStreamEvent === 'function') {
+                                callbacks.onStreamEvent(event);
+                            } else {
+                                this.handleStreamEvent(event);
+                            }
 
                         } catch (parseErr) {
                             console.error('Parse error:', parseErr, line);
@@ -974,6 +997,34 @@ export function createStreamStore(callbacks) {
                         callbacks.refreshSessionScreens();
                         callbacks.dispatch('screen-added');
                     }
+                    break;
+                }
+
+                case 'turn_interrupted': {
+                    if (!this._isReplaying) {
+                        callbacks.onAbortCleanup(state);
+                        this.resetStreamState();
+                        callbacks.scrollToBottom();
+                    }
+                    break;
+                }
+
+                case 'user_message': {
+                    callbacks.setQueuedFollowUps?.([], this._connectedUuid);
+                    const content = event.content || '';
+                    const liveMessages = callbacks.getMessages();
+                    const last = liveMessages[liveMessages.length - 1];
+                    if (!(last?.role === 'user' && last.content === content)) {
+                        liveMessages.push({
+                            id: 'msg-' + Date.now() + '-followup',
+                            role: 'user',
+                            content,
+                            timestamp: new Date().toISOString(),
+                            collapsed: false,
+                        });
+                    }
+                    this.resetStreamState();
+                    callbacks.scrollToBottom();
                     break;
                 }
 

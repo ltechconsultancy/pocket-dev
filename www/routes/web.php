@@ -392,6 +392,9 @@ Route::prefix('api')->group(function () {
         Route::get('status', [ConversationController::class, 'status']);
         Route::post('stream', [ConversationController::class, 'stream']);
         Route::post('abort', [ConversationController::class, 'abort']);
+        Route::get('follow-ups', [ConversationController::class, 'listFollowUps']);
+        Route::post('follow-ups', [ConversationController::class, 'queueFollowUp']);
+        Route::delete('follow-ups/{followUpId}', [ConversationController::class, 'cancelFollowUp']);
         Route::get('stream-status', [ConversationController::class, 'streamStatus']);
         Route::get('stream-events', [ConversationController::class, 'streamEvents']);
         Route::post('archive', [ConversationController::class, 'archive']);

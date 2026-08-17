@@ -1,5 +1,16 @@
 {{-- Fixed Bottom Input (Mobile) --}}
-<div x-ref="mobileInput" class="fixed bottom-0 left-0 right-0 z-20 bg-gray-800 border-t border-gray-700 safe-area-bottom">
+<div x-ref="mobileInput" class="js-chat-input fixed bottom-0 left-0 right-0 z-20 bg-gray-800 border-t border-gray-700 safe-area-bottom">
+    <div x-show="queuedFollowUps.length > 0 && getScreen(activeScreenId)?.type === 'chat'" x-cloak class="px-2 pt-2 flex flex-col gap-1 max-h-28 overflow-y-auto">
+        <div class="text-[11px] text-amber-400/80" x-text="isStreaming ? 'Queued — sends after current tool' : 'Queued — tap Send to deliver'"></div>
+        <template x-for="item in queuedFollowUps" :key="item.id">
+            <div class="flex items-start gap-2 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs">
+                <span class="text-gray-200 flex-1 min-w-0 truncate" x-text="item.prompt"></span>
+                <button type="button" @click="cancelFollowUp(item.id)" class="text-gray-500 hover:text-red-400 shrink-0" title="Remove from queue">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </template>
+    </div>
     {{-- Single Row: Voice | Textarea | Send --}}
     <div class="p-2 flex gap-2 items-end">
         {{-- Voice Button --}}
@@ -15,7 +26,7 @@
         </button>
 
         {{-- Textarea with Skill Autocomplete --}}
-        <div class="flex-1 relative">
+        <div class="flex-1 min-w-0 relative">
             {{-- Active Skill Chip --}}
             <div x-show="activeSkill"
                  x-cloak
@@ -103,7 +114,8 @@
             </div>
         </div>
 
-        {{-- Send/Stop Button --}}
+        {{-- Send/Stop/Queue. During a Cursor stream Stop stays left, Queue (+) is on the
+             right in the Send slot so it is visible immediately — not only after typing. --}}
         <template x-if="isStreaming && _streamState.abortPending">
             <button type="button"
                     disabled
@@ -113,19 +125,32 @@
             </button>
         </template>
         <template x-if="isStreaming && !_streamState.abortPending">
-            <button type="button"
-                    @click="abortStream()"
-                    class="w-12 py-[10px] rounded-lg text-xl flex items-center justify-center transition-colors cursor-pointer bg-rose-600/90 hover:bg-rose-500 text-white"
-                    title="Stop streaming">
-                <i class="fa-solid fa-stop"></i>
-            </button>
+            <div class="flex gap-1 shrink-0">
+                <button type="button"
+                        @click="abortStream()"
+                        class="w-12 py-[10px] rounded-lg text-xl flex items-center justify-center transition-colors cursor-pointer bg-rose-600/90 hover:bg-rose-500 text-white"
+                        style="touch-action: manipulation;"
+                        title="Stop streaming">
+                    <i class="fa-solid fa-stop"></i>
+                </button>
+                <button type="button"
+                        @click="handleSendClick($event); if(!isRecording && !isProcessing && !waitingForFinalTranscript) sendMessage()"
+                        :disabled="!canQueueFollowUp || isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading || (!prompt.trim() && !Alpine.store('attachments').hasFiles && !activeSkill)"
+                        :class="!canQueueFollowUp || isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading || (!prompt.trim() && !Alpine.store('attachments').hasFiles && !activeSkill) ? 'bg-gray-600/80 text-gray-400' : 'bg-emerald-500/90 hover:bg-emerald-400 text-white'"
+                        class="w-12 py-[10px] rounded-lg text-xl flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed"
+                        style="touch-action: manipulation;"
+                        title="Queue follow-up — sends after current tool">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
+            </div>
         </template>
         <template x-if="!isStreaming">
             <button type="button"
                     @click="handleSendClick($event); if(!isRecording && !isProcessing && !waitingForFinalTranscript) sendMessage()"
-                    :disabled="isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading || (!prompt.trim() && !Alpine.store('attachments').hasFiles && !activeSkill)"
+                    :disabled="isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading || (!prompt.trim() && !Alpine.store('attachments').hasFiles && !activeSkill && queuedFollowUps.length === 0)"
                     :class="isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading ? 'bg-gray-600/80 text-gray-400' : 'bg-emerald-500/90 hover:bg-emerald-400 text-white'"
                     class="w-12 py-[10px] rounded-lg text-xl flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    style="touch-action: manipulation;"
                     title="Send message">
                 <i class="fa-solid fa-paper-plane"></i>
             </button>

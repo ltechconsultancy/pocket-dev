@@ -6,6 +6,8 @@ use App\Contracts\AIProviderInterface;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\Providers\AbstractCliProvider;
+use App\Services\CursorFollowUpPrompt;
+use App\Services\CursorFollowUpQueue;
 use App\Services\ModelRepository;
 use App\Services\ProviderFactory;
 use App\Services\RequestFlowLogger;
@@ -132,6 +134,16 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                     userMessage: $userMessage
                 );
                 RequestFlowLogger::log('job.handle.stream_loop_completed', 'Stream loop completed');
+
+                $this->continueWithCursorFollowUps(
+                    $conversation,
+                    $provider,
+                    $streamManager,
+                    $toolRegistry,
+                    $systemPromptBuilder,
+                    $modelRepository,
+                    $this->options,
+                );
             }
 
             // Only finalize if not already completed/aborted inside streamWithToolLoop
@@ -334,6 +346,8 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         // (cumulative tokens above are for billing, context tokens below are for context % calculation)
         $contextInputTokens = null;
         $contextOutputTokens = null;
+        $cursorInFlightToolIds = [];
+        $cursorCompletedAtLeastOneTool = false;
 
         // CLI providers report cumulative context window tokens, not per-turn deltas.
         // Track previous cumulative so we can compute the actual per-turn delta before storage.
@@ -357,8 +371,21 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         // Enable inner-loop abort checking for CLI providers.
         // This allows the CLI provider's read loop to detect aborts immediately (~100ms)
         // instead of waiting for the next generator yield.
+        // Cursor follow-ups: also stop the CLI once no tools are in flight.
+        $followUpQueue = app(CursorFollowUpQueue::class);
         if ($provider instanceof AbstractCliProvider) {
-            $provider->setAbortChecker(fn() => $streamManager->checkAbortFlag($this->conversationUuid));
+            $provider->setAbortChecker(function () use ($streamManager, $followUpQueue, $conversation, &$cursorInFlightToolIds, &$cursorCompletedAtLeastOneTool) {
+                if ($streamManager->checkAbortFlag($this->conversationUuid)) {
+                    return true;
+                }
+
+                // Wait until the current tool call has finished. Do not kill the CLI
+                // during the first thinking phase (in-flight is also empty then).
+                return $conversation->provider_type === 'cursor_agent'
+                    && $cursorCompletedAtLeastOneTool
+                    && $cursorInFlightToolIds === []
+                    && $followUpQueue->hasItems($this->conversationUuid);
+            });
         }
 
         // Stream from provider
@@ -477,6 +504,17 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             // (not published to frontend, not tracked in content blocks)
             if ($event->type === StreamEvent::HEARTBEAT) {
                 $conversation->touch();
+                if ($this->interruptCursorFollowUpIfReady(
+                    $conversation, $provider, $streamManager, $toolRegistry,
+                    $systemPromptBuilder, $modelRepository, $options,
+                    count($cursorInFlightToolIds), $cursorCompletedAtLeastOneTool, $contentBlocks, $currentToolInput,
+                    $inputTokens, $outputTokens, $cacheCreationTokens, $cacheReadTokens,
+                    $turnCost, $userMessage, $contextInputTokens, $contextOutputTokens,
+                    $streamedToolResults, $isCliProvider, $prevCumulativeInput, $prevCumulativeOutput,
+                    $prevCumulativeCacheRead, $prevCumulativeCacheCreation,
+                )) {
+                    return;
+                }
                 continue;
             }
 
@@ -554,6 +592,10 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                         'started_at' => $blockTimestamp,
                     ];
                     $currentToolInput[$event->blockIndex] = '';
+                    $toolId = $event->metadata['tool_id'] ?? null;
+                    if ($toolId) {
+                        $cursorInFlightToolIds[$toolId] = true;
+                    }
                     break;
 
                 case StreamEvent::TOOL_USE_DELTA:
@@ -612,6 +654,10 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                             'conversation' => $this->conversationUuid,
                         ]);
                     }
+                    if ($toolId) {
+                        unset($cursorInFlightToolIds[$toolId]);
+                    }
+                    $cursorCompletedAtLeastOneTool = true;
                     break;
 
                 case StreamEvent::DONE:
@@ -651,6 +697,19 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                     ]);
                     throw new \RuntimeException($event->content ?? 'Unknown streaming error');
             }
+
+            if ($event->type !== StreamEvent::DONE
+                && $this->interruptCursorFollowUpIfReady(
+                    $conversation, $provider, $streamManager, $toolRegistry,
+                    $systemPromptBuilder, $modelRepository, $options,
+                    count($cursorInFlightToolIds), $cursorCompletedAtLeastOneTool, $contentBlocks, $currentToolInput,
+                    $inputTokens, $outputTokens, $cacheCreationTokens, $cacheReadTokens,
+                    $turnCost, $userMessage, $contextInputTokens, $contextOutputTokens,
+                    $streamedToolResults, $isCliProvider, $prevCumulativeInput, $prevCumulativeOutput,
+                    $prevCumulativeCacheRead, $prevCumulativeCacheCreation,
+                )) {
+                return;
+            }
         }
 
         RequestFlowLogger::log('job.loop.streaming_complete', 'Provider streaming complete', [
@@ -670,6 +729,18 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                 $streamedToolResults, $isCliProvider, $prevCumulativeInput, $prevCumulativeOutput,
                 $prevCumulativeCacheRead, $prevCumulativeCacheCreation,
             );
+            return;
+        }
+
+        if ($this->interruptCursorFollowUpIfReady(
+            $conversation, $provider, $streamManager, $toolRegistry,
+            $systemPromptBuilder, $modelRepository, $options,
+            count($cursorInFlightToolIds), $cursorCompletedAtLeastOneTool, $contentBlocks, $currentToolInput,
+            $inputTokens, $outputTokens, $cacheCreationTokens, $cacheReadTokens,
+            $turnCost, $userMessage, $contextInputTokens, $contextOutputTokens,
+            $streamedToolResults, $isCliProvider, $prevCumulativeInput, $prevCumulativeOutput,
+            $prevCumulativeCacheRead, $prevCumulativeCacheCreation,
+        )) {
             return;
         }
 
@@ -1124,6 +1195,8 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         int $prevCumulativeOutput = 0,
         int $prevCumulativeCacheRead = 0,
         int $prevCumulativeCacheCreation = 0,
+        string $abortReason = 'user_abort',
+        bool $finalizeStream = true,
     ): void {
         Log::info('ProcessConversationStream: Abort requested', [
             'conversation' => $this->conversationUuid,
@@ -1164,7 +1237,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             // Add an "interrupted" marker for UI display (filtered out when sent to API)
             $contentBlocks[] = [
                 'type' => 'interrupted',
-                'reason' => 'user_abort',
+                'reason' => $abortReason,
             ];
 
             $assistantMessage = null;
@@ -1252,16 +1325,22 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             // Calculate turns while still locked (even for aborted streams)
             $this->calculateAndStoreTurns($conversation);
 
-            // Complete stream and cleanup FIRST, so the frontend sees the abort immediately.
-            // This must happen before $provider->abort() which may block on proc_close().
-            $conversation->completeProcessing();
-            $streamManager->appendEvent($this->conversationUuid, StreamEvent::done('aborted'));
-            $streamManager->completeStream($this->conversationUuid, 'aborted');
-            $streamManager->clearAbortFlag($this->conversationUuid);
+            if ($finalizeStream) {
+                // Keep leftover Cursor follow-ups so an accidental Stop can still send them next.
 
-            // Dispatch async embedding job
-            GenerateConversationEmbeddings::dispatch($conversation);
-            RequestFlowLogger::log('job.loop.abort_complete', 'Abort handling complete');
+                // Complete stream and cleanup FIRST, so the frontend sees the abort immediately.
+                // This must happen before $provider->abort() which may block on proc_close().
+                $conversation->completeProcessing();
+                $streamManager->appendEvent($this->conversationUuid, StreamEvent::done('aborted'));
+                $streamManager->completeStream($this->conversationUuid, 'aborted');
+                $streamManager->clearAbortFlag($this->conversationUuid);
+
+                // Dispatch async embedding job
+                GenerateConversationEmbeddings::dispatch($conversation);
+                RequestFlowLogger::log('job.loop.abort_complete', 'Abort handling complete');
+            } else {
+                RequestFlowLogger::log('job.loop.abort_deferred', 'Abort saved without completing stream (follow-up)');
+            }
 
             // Final cleanup: kill process group and close the process resource.
             // This may block briefly on proc_close() but the stream is already marked
@@ -1418,6 +1497,141 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
 
         return collect($content)
             ->contains(fn($block) => ($block['type'] ?? '') === 'text');
+    }
+
+    /**
+     * If Cursor has queued follow-ups and no tool is in flight, interrupt and inject them.
+     *
+     * @return bool True when this turn was interrupted and a follow-up turn was started
+     */
+    private function interruptCursorFollowUpIfReady(
+        Conversation $conversation,
+        AIProviderInterface $provider,
+        StreamManager $streamManager,
+        ToolRegistry $toolRegistry,
+        SystemPromptBuilder $systemPromptBuilder,
+        ModelRepository $modelRepository,
+        array $options,
+        int $cursorToolsInFlight,
+        bool $cursorCompletedAtLeastOneTool,
+        array $contentBlocks,
+        array $currentToolInput,
+        int $inputTokens,
+        int $outputTokens,
+        ?int $cacheCreationTokens,
+        ?int $cacheReadTokens,
+        float $turnCost,
+        ?Message $userMessage,
+        ?int $contextInputTokens,
+        ?int $contextOutputTokens,
+        array $streamedToolResults,
+        bool $isCliProvider,
+        int $prevCumulativeInput,
+        int $prevCumulativeOutput,
+        int $prevCumulativeCacheRead,
+        int $prevCumulativeCacheCreation,
+    ): bool {
+        if ($conversation->provider_type !== 'cursor_agent') {
+            return false;
+        }
+
+        $followUpQueue = app(CursorFollowUpQueue::class);
+        if (!$followUpQueue->hasItems($this->conversationUuid)) {
+            return false;
+        }
+
+        if ($cursorToolsInFlight > 0 || !$cursorCompletedAtLeastOneTool) {
+            return false;
+        }
+
+        RequestFlowLogger::log('job.loop.followup_interrupt', 'Interrupting Cursor stream after current tool for queued follow-up');
+
+        $streamManager->appendEvent(
+            $this->conversationUuid,
+            StreamEvent::turnInterrupted('queued_followup')
+        );
+
+        if ($provider instanceof AbstractCliProvider) {
+            $provider->signalAbort();
+        }
+
+        $this->injectPartialToolInput($contentBlocks, $currentToolInput);
+        $this->handleAbort(
+            $conversation, $provider, $streamManager, $contentBlocks,
+            $inputTokens, $outputTokens, $cacheCreationTokens, $cacheReadTokens,
+            $turnCost, $userMessage, $contextInputTokens, $contextOutputTokens,
+            $streamedToolResults, $isCliProvider, $prevCumulativeInput, $prevCumulativeOutput,
+            $prevCumulativeCacheRead, $prevCumulativeCacheCreation,
+            abortReason: 'queued_followup',
+            finalizeStream: false,
+        );
+
+        $this->continueWithCursorFollowUps(
+            $conversation,
+            $provider,
+            $streamManager,
+            $toolRegistry,
+            $systemPromptBuilder,
+            $modelRepository,
+            $options,
+        );
+
+        return true;
+    }
+
+    /**
+     * Drain queued Cursor follow-ups and run them as subsequent turns on the same stream.
+     */
+    private function continueWithCursorFollowUps(
+        Conversation $conversation,
+        AIProviderInterface $provider,
+        StreamManager $streamManager,
+        ToolRegistry $toolRegistry,
+        SystemPromptBuilder $systemPromptBuilder,
+        ModelRepository $modelRepository,
+        array $options,
+    ): void {
+        if ($conversation->provider_type !== 'cursor_agent') {
+            return;
+        }
+
+        $followUpQueue = app(CursorFollowUpQueue::class);
+
+        while (true) {
+            $items = $followUpQueue->drain($this->conversationUuid);
+            if ($items === []) {
+                return;
+            }
+
+            $prompt = CursorFollowUpPrompt::format($items);
+            if (trim($prompt) === 'This prompt was added mid stream:') {
+                return;
+            }
+
+            RequestFlowLogger::log('job.handle.followup_dispatch', 'Starting Cursor follow-up turn', [
+                'queued_count' => count($items),
+                'prompt_length' => strlen($prompt),
+            ]);
+
+            $userMessage = $this->saveUserMessage($conversation, $prompt);
+            $streamManager->appendEvent($this->conversationUuid, StreamEvent::userMessage($prompt));
+            // Replay from this user_message so a refresh still paints the injected turn
+            $streamManager->putMetadata($this->conversationUuid, [
+                'followup_replay_from' => max(0, $streamManager->getEventCount($this->conversationUuid) - 1),
+            ]);
+
+            $this->streamWithToolLoop(
+                $conversation,
+                $provider,
+                $streamManager,
+                $toolRegistry,
+                $systemPromptBuilder,
+                $modelRepository,
+                array_merge($options, ['override_user_message' => $prompt]),
+                0,
+                $userMessage,
+            );
+        }
     }
 
     /**

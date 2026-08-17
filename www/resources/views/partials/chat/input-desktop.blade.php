@@ -1,5 +1,17 @@
 {{-- Desktop Input Form --}}
-<div class="border-t border-gray-700 p-3 bg-gray-800">
+<div class="js-chat-input border-t border-gray-700 p-3 bg-gray-800">
+    <div x-show="queuedFollowUps.length > 0 && getScreen(activeScreenId)?.type === 'chat'" class="mb-2 flex flex-col gap-1">
+        <div class="text-[11px] text-amber-400/80" x-text="isStreaming ? 'Queued — sends after current tool' : 'Queued — tap Send to deliver'"></div>
+        <template x-for="item in queuedFollowUps" :key="item.id">
+            <div class="flex items-start gap-2 bg-white/5 border border-white/10 rounded px-2 py-1 text-xs">
+                <span class="text-gray-500 shrink-0 font-mono" x-text="item.queued_at"></span>
+                <span class="text-gray-200 flex-1 min-w-0 truncate" x-text="item.prompt"></span>
+                <button type="button" @click="cancelFollowUp(item.id)" class="text-gray-500 hover:text-red-400 shrink-0" title="Remove from queue">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </template>
+    </div>
     <form @submit.prevent="sendMessage()" class="flex gap-2 items-end">
         {{-- Voice Button --}}
         <button type="button"
@@ -279,6 +291,16 @@
                 <x-spinner /> Stopping...
             </button>
         </template>
+        <template x-if="isStreaming && !_streamState.abortPending && canQueueFollowUp">
+            <button type="submit"
+                    @click="handleSendClick($event)"
+                    :disabled="isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading || (!prompt.trim() && !Alpine.store('attachments').hasFiles && !activeSkill)"
+                    :class="isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading ? 'bg-gray-600 text-gray-400' : 'bg-emerald-600/90 hover:bg-emerald-500 text-white'"
+                    class="px-4 py-[10px] rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    title="Queue follow-up — sends after current tool">
+                <i class="fa-solid fa-plus"></i> Queue
+            </button>
+        </template>
         <template x-if="isStreaming && !_streamState.abortPending">
             <button type="button"
                     @click="abortStream()"
@@ -289,7 +311,7 @@
         <template x-if="!isStreaming">
             <button type="submit"
                     @click="handleSendClick($event)"
-                    :disabled="isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading || (!prompt.trim() && !Alpine.store('attachments').hasFiles && !activeSkill)"
+                    :disabled="isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading || (!prompt.trim() && !Alpine.store('attachments').hasFiles && !activeSkill && queuedFollowUps.length === 0)"
                     :class="isProcessing || isRecording || waitingForFinalTranscript || Alpine.store('attachments').isUploading ? 'bg-gray-600 text-gray-400' : 'bg-emerald-600/90 hover:bg-emerald-500 text-white'"
                     class="px-4 py-[10px] rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:cursor-not-allowed">
                 <i class="fa-solid fa-paper-plane"></i> Send

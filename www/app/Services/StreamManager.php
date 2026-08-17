@@ -54,6 +54,17 @@ class StreamManager
     }
 
     /**
+     * Merge extra fields into existing stream metadata.
+     */
+    public function putMetadata(string $conversationUuid, array $extra): void
+    {
+        $key = $this->key($conversationUuid);
+        $existing = $this->getMetadata($conversationUuid) ?? [];
+        Redis::set("{$key}:metadata", json_encode(array_merge($existing, $extra)));
+        Redis::expire("{$key}:metadata", self::TTL_STREAMING);
+    }
+
+    /**
      * Append an event to the stream.
      *
      * Uses Redis transaction to ensure event is in the list before publishing.

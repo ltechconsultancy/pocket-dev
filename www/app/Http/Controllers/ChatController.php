@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Conversation;
 use App\Models\Session;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\View\View;
@@ -21,12 +22,17 @@ class ChatController extends Controller
     /**
      * Show the chat interface for a specific session.
      * Sets the active workspace and last session for returning from settings.
+     * Missing or archived sessions redirect home instead of rendering an error.
      */
-    public function showSession(Request $request, string $sessionId): View
+    public function showSession(Request $request, string $sessionId): View|RedirectResponse
     {
         $session = Session::find($sessionId);
 
-        if ($session && $session->workspace_id) {
+        if (!$session || $session->is_archived) {
+            return redirect()->route('chat.index');
+        }
+
+        if ($session->workspace_id) {
             $request->session()->put('active_workspace_id', $session->workspace_id);
             // Store per-workspace last session (for returning from settings)
             $request->session()->put("last_session_{$session->workspace_id}", $session->id);

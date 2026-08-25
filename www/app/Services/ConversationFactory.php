@@ -181,7 +181,8 @@ class ConversationFactory
             // Session timestamp: preserve (navigation only)
             $session->setActiveScreen($screen);
 
-            // Load relationships for response
+            // Reload so JSON includes screen_order + all screens (tab bar)
+            $session->refresh();
             $conversation->load('screen.session.screens.conversation');
 
             return [

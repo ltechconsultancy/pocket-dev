@@ -88,6 +88,101 @@ check_database_connection() {
     done
 }
 
+create_pre_migration_backup() {
+    local backup_dir="/var/www/storage/app/backups"
+    local backup_file="${backup_dir}/pre-migrate-$(date +%Y%m%d_%H%M%S).sql"
+    local backup_tmp="${backup_file}.tmp"
+    local backup_err="${backup_file}.err"
+
+    mkdir -p "$backup_dir"
+    chown "${TARGET_UID}:33" "$backup_dir" 2>/dev/null || true
+
+    rm -f "$backup_tmp" "$backup_err"
+
+    if ! PGPASSWORD="${PD_DB_PASSWORD}" pg_dump \
+        -h "${PD_DB_HOST:-pocket-dev-postgres}" \
+        -p "${PD_DB_PORT:-5432}" \
+        -U "${PD_DB_USERNAME:-pocket-dev}" \
+        "${PD_DB_DATABASE:-pocket-dev}" > "$backup_tmp" 2>"$backup_err"; then
+        echo "FATAL: Pre-migration backup failed; refusing to run migrations without a backup." >&2
+        if [ -s "$backup_err" ]; then
+            echo "  pg_dump error: $(tail -n 1 "$backup_err")" >&2
+        fi
+        rm -f "$backup_tmp" "$backup_err"
+        return 1
+    fi
+
+    if [ ! -s "$backup_tmp" ]; then
+        echo "FATAL: Pre-migration backup failed; generated backup file is empty." >&2
+        rm -f "$backup_tmp" "$backup_err"
+        return 1
+    fi
+
+    mv "$backup_tmp" "$backup_file"
+    rm -f "$backup_err"
+    echo "Pre-migration backup saved: ${backup_file}"
+
+    # Keep only the 10 most recent pre-migration backups
+    ls -t "${backup_dir}"/pre-migrate-*.sql 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
+}
+
+count_pending_migrations() {
+    local migrations_table_exists=""
+    local executed_migrations=""
+    local pending_count=0
+    local migration=""
+    local -a local_migrations=()
+    local -A executed_migration_map=()
+
+    mapfile -t local_migrations < <(
+        find /var/www/database/migrations -maxdepth 1 -type f -name '*.php' -printf '%f\n' 2>/dev/null \
+            | sed 's/\.php$//' \
+            | sort -u
+    )
+
+    if ! migrations_table_exists="$(
+        PGPASSWORD="${PD_DB_PASSWORD}" psql \
+            "host=${PD_DB_HOST:-pocket-dev-postgres} port=${PD_DB_PORT:-5432} dbname=${PD_DB_DATABASE:-pocket-dev} user=${PD_DB_USERNAME:-pocket-dev} connect_timeout=3" \
+            -Atqc "SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = 'migrations'
+            )"
+    )"; then
+        echo "FATAL: Failed to determine whether the migrations table exists." >&2
+        return 1
+    fi
+
+    if [ "$migrations_table_exists" != "t" ]; then
+        printf '%s\n' "${#local_migrations[@]}"
+        return 0
+    fi
+
+    if ! executed_migrations="$(
+        PGPASSWORD="${PD_DB_PASSWORD}" psql \
+            "host=${PD_DB_HOST:-pocket-dev-postgres} port=${PD_DB_PORT:-5432} dbname=${PD_DB_DATABASE:-pocket-dev} user=${PD_DB_USERNAME:-pocket-dev} connect_timeout=3" \
+            -Atqc "SELECT migration FROM migrations"
+    )"; then
+        echo "FATAL: Failed to read applied migrations from the database." >&2
+        return 1
+    fi
+
+    while IFS= read -r migration; do
+        if [ -n "$migration" ]; then
+            executed_migration_map["$migration"]=1
+        fi
+    done <<< "$executed_migrations"
+
+    for migration in "${local_migrations[@]}"; do
+        if [ -z "${executed_migration_map[$migration]:-}" ]; then
+            pending_count=$((pending_count + 1))
+        fi
+    done
+
+    printf '%s\n' "$pending_count"
+}
+
 # Runtime configurable UID/GID (from compose.yml environment)
 TARGET_UID="${PD_TARGET_UID:-1000}"
 TARGET_GID="${PD_TARGET_GID:-1000}"
@@ -237,6 +332,19 @@ if [ $# -eq 0 ] || [ "$1" = "php-fpm" ]; then
 
     # Run Laravel production optimizations (as www-data, which is in TARGET_GID group)
     echo "Running Laravel optimizations..."
+
+    # Take a pre-migration backup if there are pending migrations.
+    # This guards against data loss when switching branches with incompatible migration histories.
+    if ! PENDING_MIGRATIONS="$(count_pending_migrations)"; then
+        exit 1
+    fi
+    if [ "${PENDING_MIGRATIONS:-0}" -gt 0 ]; then
+        echo "Detected ${PENDING_MIGRATIONS} pending migration(s) — creating pre-migration backup..."
+        if ! create_pre_migration_backup; then
+            exit 1
+        fi
+    fi
+
     if ! gosu www-data php artisan migrate --force --no-interaction 2>&1; then
         echo "FATAL: database migrations failed." >&2
         echo "  If you changed PD_DB_PASSWORD: delete the postgres volume in Coolify or restore the old password." >&2

@@ -153,6 +153,35 @@ if [ $# -eq 0 ] || [ "$1" = "php-fpm" ]; then
 
     # Run Laravel commands as appuser
     echo "Running Laravel setup..."
+
+    # -------------------------------------------------------------------------
+    # Pre-migratie backup (overgenomen uit commit 699dd3c, branch
+    # fix/pre-migration-backup, die nooit naar main is gemerged).
+    # Voorkomt dataverlies bij het wisselen tussen branches met incompatibele
+    # migratiehistories. Draait alleen als er daadwerkelijk migraties openstaan,
+    # dus normale herstarts worden niet vertraagd.
+    # -------------------------------------------------------------------------
+    PENDING_MIGRATIONS=$(gosu appuser php /var/www/artisan migrate:status --no-interaction 2>/dev/null | grep -c "Pending" || true)
+    if [ "${PENDING_MIGRATIONS:-0}" -gt 0 ]; then
+        echo "Let op: ${PENDING_MIGRATIONS} openstaande migratie(s) - eerst een backup maken..."
+        BACKUP_DIR="/var/www/storage/app/backups"
+        BACKUP_FILE="${BACKUP_DIR}/pre-migrate-$(date +%Y%m%d_%H%M%S).sql"
+        mkdir -p "$BACKUP_DIR"
+        PD_DB_PASSWORD_VAL=$(grep -E '^PD_DB_PASSWORD=' /var/www/.env 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'"'')
+        if PGPASSWORD="${PD_DB_PASSWORD_VAL}" pg_dump \
+            -h "${PD_DB_HOST:-pocket-dev-postgres}" \
+            -p "${PD_DB_PORT:-5432}" \
+            -U "${PD_DB_USERNAME:-pocket-dev}" \
+            "${PD_DB_DATABASE:-pocket-dev}" > "$BACKUP_FILE" 2>/dev/null && [ -s "$BACKUP_FILE" ]; then
+            echo "Pre-migratie backup opgeslagen: ${BACKUP_FILE}"
+            ls -t "${BACKUP_DIR}"/pre-migrate-*.sql 2>/dev/null | tail -n +11 | xargs rm -f 2>/dev/null || true
+        else
+            rm -f "$BACKUP_FILE"
+            echo "FATAAL: pre-migratie backup mislukt - migratie wordt NIET uitgevoerd." >&2
+            echo "  Controleer PD_DB_PASSWORD in /var/www/.env en of pg_dump de database kan bereiken." >&2
+            exit 1
+        fi
+    fi
     gosu appuser php /var/www/artisan migrate --force
     gosu appuser php /var/www/artisan optimize:clear
     gosu appuser php /var/www/artisan config:cache

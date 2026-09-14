@@ -142,6 +142,12 @@ services:
       dockerfile: docker-laravel/local/php/Dockerfile
     container_name: ${PD_PROJECT_NAME:-pocket-dev}-queue
     restart: unless-stopped
+    # Memory cap for the queue workers plus every agent they spawn (CLIs, MCP servers,
+    # browsers, scripts). Without it one runaway agent can push the host into swap
+    # thrashing and take the whole server down. With it, the kernel only kills the
+    # largest process inside this container. Swap is disabled for the same reason.
+    mem_limit: ${PD_QUEUE_MEM_LIMIT:-5g}
+    memswap_limit: ${PD_QUEUE_MEM_LIMIT:-5g}
     working_dir: /var/www
     # No 'user:' - container starts as root, entrypoint drops to TARGET_UID via gosu
     entrypoint: ["/queue-entrypoint.sh"]
@@ -210,4 +216,7 @@ volumes:
     driver: local
   shared-tmp:
     name: ${PD_PROJECT_NAME:-pocket-dev}-shared-tmp
+    driver: local
+  proxy-config-data:
+    name: ${PD_PROJECT_NAME:-pocket-dev}-proxy-config
     driver: local

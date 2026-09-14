@@ -127,6 +127,12 @@ services:
       context: .
       dockerfile: docker-laravel/production/php/Dockerfile
     restart: unless-stopped
+    # Memory cap for the queue workers plus every agent they spawn (CLIs, MCP servers,
+    # browsers, scripts). Without it one runaway agent can push the host into swap
+    # thrashing and take the whole server down. With it, the kernel only kills the
+    # largest process inside this container. Swap is disabled for the same reason.
+    mem_limit: ${PD_QUEUE_MEM_LIMIT:-5g}
+    memswap_limit: ${PD_QUEUE_MEM_LIMIT:-5g}
     labels:
       - traefik.enable=false
     working_dir: /var/www

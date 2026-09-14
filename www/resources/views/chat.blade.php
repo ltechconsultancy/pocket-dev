@@ -1992,13 +1992,22 @@
 
                 // Computed: visible screen order (excludes screens with archived conversations)
                 get visibleScreenOrder() {
-                    if (!this.currentSession?.screen_order) return [];
-                    return this.currentSession.screen_order.filter(screenId => {
-                        const screen = this._screenMap?.[screenId] || this.screens.find(s => s.id === screenId);
-                        // Show all panel screens, only show chat screens if conversation is not archived
+                    let order = this.currentSession?.screen_order;
+                    // Nested create payloads can ship screen_order as a JSON string
+                    if (typeof order === 'string') {
+                        try { order = JSON.parse(order); } catch { order = []; }
+                    }
+                    const isVisible = (screen) => {
                         if (!screen) return false;
                         if (screen.type === 'panel') return true;
                         return screen.conversation?.status !== 'archived';
+                    };
+                    if (!Array.isArray(order) || order.length === 0) {
+                        return (this.screens || []).filter(isVisible).map(s => s.id);
+                    }
+                    return order.filter(screenId => {
+                        const screen = this._screenMap?.[screenId] || this.screens.find(s => s.id === screenId);
+                        return isVisible(screen);
                     });
                 },
 
@@ -3857,7 +3866,9 @@
                         // Update conversation title for header
                         this.currentConversationTitle = data.conversation?.title || null;
 
-                        // Load session and screens if available
+                        // Load session and screens if available. Never clear an
+                        // existing session just because this payload omitted nested
+                        // session data — that hides the screen-tab bar until refresh.
                         console.log('[DEBUG] Screen data:', data.conversation?.screen);
                         console.log('[DEBUG] Session data:', data.conversation?.screen?.session);
                         if (data.conversation?.screen?.session) {
@@ -3866,13 +3877,11 @@
                             this.activeScreenId = data.conversation.screen.id;
                             console.log('[DEBUG] currentSession set:', this.currentSession);
                             console.log('[DEBUG] activeScreenId set:', this.activeScreenId);
-                        } else {
-                            console.log('[DEBUG] No screen.session found - clearing session state');
-                            // Clear session state if conversation has no screen
-                            this.currentSession = null;
-                            this.screens = [];
-                            this.activeScreenId = null;
-                            this._screenMap = {};
+                        } else if (data.conversation?.screen?.session_id && this.currentSession?.id !== data.conversation.screen.session_id) {
+                            await this.loadSession(data.conversation.screen.session_id);
+                            this.activeScreenId = data.conversation.screen.id;
+                        } else if (data.conversation?.screen?.id) {
+                            this.activeScreenId = data.conversation.screen.id;
                         }
 
                         // Set agent from conversation (don't use selectAgent which would PATCH backend)
@@ -4040,7 +4049,15 @@
                     }
                     try {
                         const response = await fetch(`/api/sessions/${sessionId}`);
-                        if (!response.ok) throw new Error('Failed to load session');
+                        if (!response.ok) {
+                            // Typed / bookmarked URLs of deleted sessions should
+                            // return to home instead of showing an error modal.
+                            if (this.getSessionIdFromUrl() === sessionId) {
+                                this.goToHome({ replace: true });
+                                return;
+                            }
+                            throw new Error('Failed to load session');
+                        }
 
                         const session = await response.json();
                         console.log('[DEBUG] Loaded session:', session.id, session.name, 'screens:', session.screens?.length);
@@ -4114,14 +4131,15 @@
 
                         const session = await response.json();
 
-                        // Update screens list
+                        // Replace currentSession so Alpine re-renders screen tabs.
+                        // Nested property mutation (screen_order = ...) is easy to miss.
+                        this.currentSession = {
+                            ...this.currentSession,
+                            ...session,
+                            screen_order: session.screen_order || [],
+                            last_active_screen_id: session.last_active_screen_id,
+                        };
                         this.screens = session.screens || [];
-
-                        // Update currentSession with new screen_order (this drives the tab rendering)
-                        if (this.currentSession) {
-                            this.currentSession.screen_order = session.screen_order || [];
-                            this.currentSession.last_active_screen_id = session.last_active_screen_id;
-                        }
 
                         // Rebuild lookup map
                         this._screenMap = {};
@@ -4396,8 +4414,18 @@
                     console.log('[DEBUG] loadSessionFromConversation called with session:', session?.id, session?.name);
                     console.log('[DEBUG] Session screens:', session?.screens?.length, session?.screens?.map(s => s.id));
                     console.log('[DEBUG] Session screen_order:', session?.screen_order);
+
+                    // Nested create/show payloads often omit screens or screen_order.
+                    // Fetch the full session so the tab bar matches a page refresh.
+                    const order = Array.isArray(session?.screen_order) ? session.screen_order : [];
+                    const screens = Array.isArray(session?.screens) ? session.screens : [];
+                    if (session?.id && (screens.length === 0 || order.length === 0)) {
+                        await this.loadSession(session.id);
+                        return;
+                    }
+
                     this.currentSession = session;
-                    this.screens = session.screens || [];
+                    this.screens = screens;
                     console.log('[DEBUG] currentSession now set to:', this.currentSession?.id);
 
                     // Build a lookup map for quick screen access
@@ -4405,6 +4433,18 @@
                     for (const screen of this.screens) {
                         this._screenMap[screen.id] = screen;
                     }
+                },
+
+                goToHome({ replace = true } = {}) {
+                    this.currentSession = null;
+                    this.screens = [];
+                    this.activeScreenId = null;
+                    this._screenMap = {};
+                    this.currentConversationUuid = null;
+                    this.currentConversationStatus = null;
+                    this.currentConversationTitle = null;
+                    if (this._messageStore) this._messageStore.clearMessages();
+                    this.updateSessionUrl(null, { replace });
                 },
 
                 // Get screen by ID
@@ -5829,18 +5869,21 @@
                             const data = await response.json();
                             this.currentConversationUuid = data.conversation.uuid;
                             this.currentConversationTitle = data.conversation.title || null;
-                            this.conversationProvider = this.provider; // Lock provider for this conversation
 
-                            // Load session and screens if returned from the API
-                            if (data.conversation?.screen?.session) {
-                                console.log('[DEBUG] New conversation has session:', data.conversation.screen.session.id);
-                                await this.loadSessionFromConversation(data.conversation.screen.session);
-                                this.activeScreenId = data.conversation.screen.id;
-                                // Refresh sessions list to include the new session
+                            // Load the full session (same path as a page refresh) so
+                            // screen tabs appear immediately for new Grok/Cursor chats.
+                            const newSessionId = data.conversation?.screen?.session?.id
+                                || data.conversation?.screen?.session_id;
+                            if (newSessionId) {
+                                console.log('[DEBUG] New conversation has session:', newSessionId);
+                                await this.loadSession(newSessionId);
+                                if (data.conversation.screen.id) {
+                                    this.activeScreenId = data.conversation.screen.id;
+                                }
                                 await this.fetchSessions();
-                                // Update URL with new session ID
-                                this.updateSessionUrl(data.conversation.screen.session.id);
                             }
+                            // Lock provider after loadSession — that path resets it for empty chats
+                            this.conversationProvider = this.provider;
                         } catch (err) {
                             this.showError('Failed to create conversation: ' + err.message);
                             this.prompt = userPrompt; // Restore prompt so user can retry

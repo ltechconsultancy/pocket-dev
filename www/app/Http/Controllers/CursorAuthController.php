@@ -92,26 +92,23 @@ class CursorAuthController extends Controller
                 ], 422);
             }
 
-            // Create directory if it does not exist
-            $dir = dirname($this->credentialsPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0770, true);
-            }
-
-            // Save the file. LOCK_EX serializes concurrent PHP writers; it does NOT
-            // coordinate with the `agent` CLI binary (which does not honor advisory locks).
-            $bytes = file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT), LOCK_EX);
-            if ($bytes === false) {
+            // Write via a temp file + rename instead of writing in place: that needs
+            // write access on the directory only, so it no longer matters whether the
+            // existing file is owned by www-data (php-fpm) or appuser (the agent CLI).
+            // rename() is atomic, which also replaces what LOCK_EX was doing here -
+            // the CLI binary never honoured advisory locks anyway.
+            try {
+                $this->writeCredentials(json_encode($data, JSON_PRETTY_PRINT));
+            } catch (\RuntimeException $e) {
                 // Token is intentionally NOT consumed — user can retry without
                 // returning to /cursor/auth for a fresh command. Path is logged
                 // server-side but kept out of the client response.
-                Log::error('[Cursor Auth] Write failed', ['path' => $this->credentialsPath]);
+                Log::error('[Cursor Auth] Write failed', [
+                    'path' => $this->credentialsPath,
+                    'error' => $e->getMessage(),
+                ]);
                 throw new \RuntimeException('Failed to write credentials file.');
             }
-
-            // Try to set group-writable permissions (non-fatal if we're not the owner)
-            @chmod($dir, 0770);
-            @chmod($this->credentialsPath, 0660);
 
             // Atomically consume the one-time token only after the write succeeded.
             // If a concurrent request already pulled it, surface the same 403 — the
@@ -392,4 +389,41 @@ class CursorAuthController extends Controller
 
         return false;
     }
+
+    /**
+     * Write the credentials file atomically.
+     *
+     * php-fpm runs as www-data while the agent CLIs run as appuser, so whoever wrote
+     * the file last owns it. Writing a temp file and renaming it into place only needs
+     * write access on the directory, which both users have, so ownership no longer
+     * decides whether an upload succeeds. rename() is atomic, so a reader never sees a
+     * half-written file. chmod is best-effort: it fails when we do not own the file,
+     * and that must never turn a successful write into an error.
+     */
+    protected function writeCredentials(string $content): void
+    {
+        $dir = dirname($this->credentialsPath);
+        if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Could not create directory {$dir}.");
+        }
+        @chmod($dir, 0770);
+
+        $tmp = tempnam($dir, ".credentials-");
+        if ($tmp === false) {
+            throw new \RuntimeException("Could not create a temporary file in {$dir}.");
+        }
+
+        if (file_put_contents($tmp, $content) === false) {
+            @unlink($tmp);
+            throw new \RuntimeException("Could not write credentials file.");
+        }
+
+        @chmod($tmp, 0660);
+
+        if (!rename($tmp, $this->credentialsPath)) {
+            @unlink($tmp);
+            throw new \RuntimeException("Could not move credentials into place.");
+        }
+    }
+
 }

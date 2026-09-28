@@ -382,6 +382,8 @@ Route::prefix('api')->group(function () {
 
     // Latest activity timestamp for sidebar polling (must be before resource route)
     Route::get('conversations/latest-activity', [ConversationController::class, 'latestActivity']);
+    // Full content of a single block that show() returned truncated (see ConversationController::MAX_BLOCK_CHARS).
+    Route::get('messages/{message}/blocks/{index}', [ConversationController::class, 'messageBlock'])->whereNumber('index');
 
     // Resource routes: index, store, show, destroy
     Route::apiResource('conversations', ConversationController::class)

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\ProcessConversationStream;
 use App\Models\Agent;
 use App\Models\Conversation;
+use App\Models\Message;
 use App\Models\Screen;
 use App\Models\Session;
 use App\Models\Workspace;
@@ -30,6 +31,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ConversationController extends Controller
 {
+    /**
+     * Cap on how many characters a single content block may contribute to a
+     * conversation response. A single tool_result can hold megabytes of command
+     * output; sending that to the browser makes the app unusable on a slow link
+     * (observed: one conversation returned 4.7 MB for turns=5). Clients fetch the
+     * full block on demand via GET /api/messages/{message}/blocks/{index}.
+     */
+    public const MAX_BLOCK_CHARS = 20000;
+
     public function __construct(
         private ProviderFactory $providerFactory,
         private StreamManager $streamManager,
@@ -209,7 +219,11 @@ class ConversationController extends Controller
             }
         }
 
-        $conversation->setRelation('messages', $messagesQuery->get());
+        $messages = $messagesQuery->get();
+        $truncatedBlocks = $request->boolean('full_blocks')
+            ? 0
+            : $this->truncateOversizedBlocks($messages);
+        $conversation->setRelation('messages', $messages);
 
         $totals = $conversation->messages()
             ->reorder()
@@ -237,6 +251,8 @@ class ConversationController extends Controller
                 'min_turn' => $minTurn,
                 'max_turn' => $maxTurn,
                 'turns_limit' => $request->boolean('all') ? null : $turnsLimit,
+                'truncated_blocks' => $truncatedBlocks,
+                'max_block_chars' => self::MAX_BLOCK_CHARS,
             ],
             'totals' => [
                 'cost' => (float) ($totals->cost ?? 0),
@@ -1154,4 +1170,84 @@ class ConversationController extends Controller
         $config = $levels[$level] ?? null;
         return $config[$configKey] ?? 0;
     }
+
+    /**
+     * Replace oversized strings inside message content blocks with a truncated
+     * copy, annotated so the client can fetch the rest when the user asks for it.
+     *
+     * Only the in-memory models are changed - nothing is written back to the
+     * database. Returns how many blocks were shortened.
+     */
+    private function truncateOversizedBlocks(\Illuminate\Support\Collection $messages): int
+    {
+        $truncated = 0;
+
+        foreach ($messages as $message) {
+            $content = $message->content;
+
+            if (!is_array($content)) {
+                continue;
+            }
+
+            $changed = false;
+
+            foreach ($content as $index => $block) {
+                if (!is_array($block)) {
+                    continue;
+                }
+
+                foreach (["text", "thinking", "content"] as $key) {
+                    if (!isset($block[$key]) || !is_string($block[$key])) {
+                        continue;
+                    }
+
+                    $length = strlen($block[$key]);
+
+                    if ($length <= self::MAX_BLOCK_CHARS) {
+                        continue;
+                    }
+
+                    $block[$key] = substr($block[$key], 0, self::MAX_BLOCK_CHARS);
+                    $block["truncated"] = true;
+                    $block["full_length"] = $length;
+                    $block["message_id"] = $message->id;
+                    $block["block_index"] = $index;
+
+                    $changed = true;
+                    $truncated++;
+                }
+
+                if ($changed) {
+                    $content[$index] = $block;
+                }
+            }
+
+            if ($changed) {
+                $message->setAttribute("content", $content);
+            }
+        }
+
+        return $truncated;
+    }
+
+    /**
+     * Return one content block of one message in full, for clients that received
+     * a truncated copy. Kept separate from show() so the heavy payload is only
+     * ever fetched when the user explicitly expands the block.
+     */
+    public function messageBlock(Message $message, int $index): JsonResponse
+    {
+        $content = $message->content;
+
+        if (!is_array($content) || !array_key_exists($index, $content)) {
+            return response()->json(["message" => "Block not found."], 404);
+        }
+
+        return response()->json([
+            "message_id" => $message->id,
+            "block_index" => $index,
+            "block" => $content[$index],
+        ]);
+    }
+
 }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\ProcessConversationStream;
 use App\Models\Agent;
 use App\Models\Conversation;
+use App\Models\Message;
 use App\Models\Screen;
 use App\Models\Session;
 use App\Models\Workspace;
@@ -30,6 +31,15 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class ConversationController extends Controller
 {
+    /**
+     * Cap on how many characters a single content block may contribute to a
+     * conversation response. A single tool_result can hold megabytes of command
+     * output; sending that to the browser makes the app unusable on a slow link
+     * (observed: one conversation returned 4.7 MB for turns=5). Clients fetch the
+     * full block on demand via GET /api/messages/{message}/blocks/{index}.
+     */
+    public const MAX_BLOCK_CHARS = 20000;
+
     public function __construct(
         private ProviderFactory $providerFactory,
         private StreamManager $streamManager,
@@ -143,6 +153,7 @@ class ConversationController extends Controller
      * - around_turn (int): load a window centered on this turn (search jump)
      * - all (bool): return the full history (avoid on mobile/large chats)
      * - include_session_screens (bool): nest screen.session.screens for legacy loaders
+     * - full_blocks (bool): skip truncation of oversized content blocks
      */
     public function show(Request $request, Conversation $conversation): JsonResponse
     {
@@ -152,6 +163,7 @@ class ConversationController extends Controller
             'around_turn' => 'nullable|integer|min:0',
             'all' => 'nullable|boolean',
             'include_session_screens' => 'nullable|boolean',
+            'full_blocks' => 'nullable|boolean',
         ]);
 
         $turnsLimit = $validated['turns'] ?? 5;
@@ -209,7 +221,11 @@ class ConversationController extends Controller
             }
         }
 
-        $conversation->setRelation('messages', $messagesQuery->get());
+        $messages = $messagesQuery->get();
+        $truncatedBlocks = $request->boolean('full_blocks')
+            ? 0
+            : $this->truncateOversizedBlocks($messages);
+        $conversation->setRelation('messages', $messages);
 
         $totals = $conversation->messages()
             ->reorder()
@@ -237,6 +253,8 @@ class ConversationController extends Controller
                 'min_turn' => $minTurn,
                 'max_turn' => $maxTurn,
                 'turns_limit' => $request->boolean('all') ? null : $turnsLimit,
+                'truncated_blocks' => $truncatedBlocks,
+                'max_block_chars' => self::MAX_BLOCK_CHARS,
             ],
             'totals' => [
                 'cost' => (float) ($totals->cost ?? 0),
@@ -1154,4 +1172,104 @@ class ConversationController extends Controller
         $config = $levels[$level] ?? null;
         return $config[$configKey] ?? 0;
     }
+
+    /**
+     * Replace oversized strings inside message content blocks with a truncated
+     * copy, annotated so the client can fetch the rest when the user asks for it.
+     *
+     * Only the in-memory models are changed - nothing is written back to the
+     * database. Returns how many blocks were shortened.
+     */
+    private function truncateOversizedBlocks(\Illuminate\Support\Collection $messages): int
+    {
+        $truncated = 0;
+
+        foreach ($messages as $message) {
+            $content = $message->content;
+
+            if (!is_array($content)) {
+                continue;
+            }
+
+            $changed = false;
+
+            foreach ($content as $index => $block) {
+                if (!is_array($block)) {
+                    continue;
+                }
+
+                $blockChanged = false;
+
+                foreach (["text", "thinking", "content"] as $key) {
+                    if (!isset($block[$key]) || !is_string($block[$key])) {
+                        continue;
+                    }
+
+                    $length = strlen($block[$key]);
+
+                    if ($length <= self::MAX_BLOCK_CHARS) {
+                        continue;
+                    }
+
+                    // mb_strcut, not substr: substr cuts on a byte boundary and can
+                    // split a multi-byte character, after which json_encode() fails
+                    // and JsonResponse throws - a 500 for the whole conversation.
+                    $kept = mb_strcut($block[$key], 0, self::MAX_BLOCK_CHARS, "UTF-8");
+
+                    // Leave a visible marker in the text itself. Clients that do not
+                    // understand the annotations below (exports, copy-to-clipboard)
+                    // must never show silently shortened content as if it were whole.
+                    $block[$key] = $kept . sprintf(
+                        "\n\n… [afgekapt: %d van %d bytes getoond]",
+                        strlen($kept),
+                        $length
+                    );
+
+                    $block["truncated"] = true;
+                    $block["truncated_fields"][$key] = $length;
+                    $block["message_id"] = $message->id;
+                    $block["block_index"] = $index;
+
+                    $blockChanged = true;
+                }
+
+                if ($blockChanged) {
+                    $content[$index] = $block;
+                    $changed = true;
+                    $truncated++;
+                }
+            }
+
+            if ($changed) {
+                $message->setAttribute("content", $content);
+                // Keep the contract "response only": without this the model stays
+                // dirty and any future save() in this request would persist the
+                // shortened content over the real conversation history.
+                $message->syncOriginal();
+            }
+        }
+
+        return $truncated;
+    }
+
+    /**
+     * Return one content block of one message in full, for clients that received
+     * a truncated copy. Kept separate from show() so the heavy payload is only
+     * ever fetched when the user explicitly expands the block.
+     */
+    public function messageBlock(Message $message, int $index): JsonResponse
+    {
+        $content = $message->content;
+
+        if (!is_array($content) || !array_key_exists($index, $content)) {
+            return response()->json(["message" => "Block not found."], 404);
+        }
+
+        return response()->json([
+            "message_id" => $message->id,
+            "block_index" => $index,
+            "block" => $content[$index],
+        ]);
+    }
+
 }

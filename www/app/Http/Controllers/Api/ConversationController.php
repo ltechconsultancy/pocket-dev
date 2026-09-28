@@ -153,6 +153,7 @@ class ConversationController extends Controller
      * - around_turn (int): load a window centered on this turn (search jump)
      * - all (bool): return the full history (avoid on mobile/large chats)
      * - include_session_screens (bool): nest screen.session.screens for legacy loaders
+     * - full_blocks (bool): skip truncation of oversized content blocks
      */
     public function show(Request $request, Conversation $conversation): JsonResponse
     {
@@ -162,6 +163,7 @@ class ConversationController extends Controller
             'around_turn' => 'nullable|integer|min:0',
             'all' => 'nullable|boolean',
             'include_session_screens' => 'nullable|boolean',
+            'full_blocks' => 'nullable|boolean',
         ]);
 
         $turnsLimit = $validated['turns'] ?? 5;
@@ -1196,6 +1198,8 @@ class ConversationController extends Controller
                     continue;
                 }
 
+                $blockChanged = false;
+
                 foreach (["text", "thinking", "content"] as $key) {
                     if (!isset($block[$key]) || !is_string($block[$key])) {
                         continue;
@@ -1207,23 +1211,41 @@ class ConversationController extends Controller
                         continue;
                     }
 
-                    $block[$key] = substr($block[$key], 0, self::MAX_BLOCK_CHARS);
+                    // mb_strcut, not substr: substr cuts on a byte boundary and can
+                    // split a multi-byte character, after which json_encode() fails
+                    // and JsonResponse throws - a 500 for the whole conversation.
+                    $kept = mb_strcut($block[$key], 0, self::MAX_BLOCK_CHARS, "UTF-8");
+
+                    // Leave a visible marker in the text itself. Clients that do not
+                    // understand the annotations below (exports, copy-to-clipboard)
+                    // must never show silently shortened content as if it were whole.
+                    $block[$key] = $kept . sprintf(
+                        "\n\n… [afgekapt: %d van %d bytes getoond]",
+                        strlen($kept),
+                        $length
+                    );
+
                     $block["truncated"] = true;
-                    $block["full_length"] = $length;
+                    $block["truncated_fields"][$key] = $length;
                     $block["message_id"] = $message->id;
                     $block["block_index"] = $index;
 
-                    $changed = true;
-                    $truncated++;
+                    $blockChanged = true;
                 }
 
-                if ($changed) {
+                if ($blockChanged) {
                     $content[$index] = $block;
+                    $changed = true;
+                    $truncated++;
                 }
             }
 
             if ($changed) {
                 $message->setAttribute("content", $content);
+                // Keep the contract "response only": without this the model stays
+                // dirty and any future save() in this request would persist the
+                // shortened content over the real conversation history.
+                $message->syncOriginal();
             }
         }
 

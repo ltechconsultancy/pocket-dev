@@ -321,7 +321,7 @@ class ConversationController extends Controller
         ]);
 
         $prompt = (string) ($validated['prompt'] ?? '');
-        $hasLeftoverFollowUps = $conversation->provider_type === 'cursor_agent'
+        $hasLeftoverFollowUps = CursorFollowUpPrompt::supports($conversation->provider_type)
             && $this->followUpQueue->hasItems($conversation->uuid);
         if (trim($prompt) === '' && !$hasLeftoverFollowUps) {
             RequestFlowLogger::endRequest('error_empty_prompt');
@@ -451,7 +451,7 @@ class ConversationController extends Controller
         // This ensures clients won't see 'not_found' after cleanup and before job starts
         RequestFlowLogger::log('controller.stream.initializing', 'Initializing stream state in Redis');
 
-        if ($conversation->provider_type === 'cursor_agent') {
+        if (CursorFollowUpPrompt::supports($conversation->provider_type)) {
             $leftover = $this->followUpQueue->drain($conversation->uuid);
             if ($leftover !== []) {
                 $formatted = CursorFollowUpPrompt::format($leftover);
@@ -855,10 +855,10 @@ class ConversationController extends Controller
      */
     public function queueFollowUp(Request $request, Conversation $conversation): JsonResponse
     {
-        if ($conversation->provider_type !== 'cursor_agent') {
+        if (!CursorFollowUpPrompt::supports($conversation->provider_type)) {
             return response()->json([
                 'success' => false,
-                'error' => 'Follow-up queue is only available for Cursor Agent conversations',
+                'error' => 'Follow-up queue is only available for Cursor Agent and Claude Code conversations',
             ], 422);
         }
 

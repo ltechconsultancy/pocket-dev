@@ -362,7 +362,25 @@
                         step="1000"
                         class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                    <p class="text-xs text-gray-400 mt-1">Extended thinking budget for Claude Code CLI</p>
+                    <p class="text-xs text-gray-400 mt-1">Token budget for older models. Opus 5.5 uses effort below.</p>
+                </div>
+
+                <div x-show="provider === 'claude_code'" x-cloak class="mt-4">
+                    <label for="claude_code_effort" class="block text-sm font-medium mb-2">Effort</label>
+                    <select
+                        id="claude_code_effort"
+                        name="claude_code_effort"
+                        class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                        @php $currentClaudeEffort = old('claude_code_effort', ($agent->reasoning_config['effort'] ?? null) ?? ($sourceAgent->reasoning_config['effort'] ?? '')); @endphp
+                        <option value="" {{ $currentClaudeEffort === '' ? 'selected' : '' }}>CLI default</option>
+                        <option value="low" {{ $currentClaudeEffort === 'low' ? 'selected' : '' }}>Low</option>
+                        <option value="medium" {{ $currentClaudeEffort === 'medium' ? 'selected' : '' }}>Medium</option>
+                        <option value="high" {{ $currentClaudeEffort === 'high' ? 'selected' : '' }}>High</option>
+                        <option value="xhigh" {{ $currentClaudeEffort === 'xhigh' ? 'selected' : '' }}>Extra high</option>
+                        <option value="max" {{ $currentClaudeEffort === 'max' ? 'selected' : '' }}>Max</option>
+                    </select>
+                    <p class="text-xs text-gray-400 mt-1">Passed as <code>--effort</code>. Use this for Opus 5.5.</p>
                 </div>
 
                 <!-- Codex Reasoning Effort -->

@@ -10,6 +10,7 @@ use App\Services\CursorFollowUpPrompt;
 use App\Services\CursorFollowUpQueue;
 use App\Services\ModelRepository;
 use App\Services\ProviderFactory;
+use App\Services\RemoteControlService;
 use App\Services\RequestFlowLogger;
 use App\Services\StreamManager;
 use App\Services\SystemPromptBuilder;
@@ -87,6 +88,13 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             // Mark conversation as processing
             $conversation->startProcessing();
             RequestFlowLogger::log('job.handle.processing_started', 'Marked conversation as processing');
+
+            // Remote Control (Claude app) and PocketDev must not write the same
+            // Claude session at once: stop it first; this imports app messages.
+            if (app(RemoteControlService::class)->suspendForTurn($conversation)) {
+                // Import/finalize ran in another process (session id, tokens, turns)
+                $conversation->refresh();
+            }
 
             // Get provider
             $provider = $providerFactory->make($conversation->provider_type);
@@ -189,6 +197,11 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             }
             $streamManager->failStream($this->conversationUuid, $e->getMessage());
             RequestFlowLogger::endRequest('failed');
+        }
+
+        // Hand the session back to the Claude app if Remote Control is on
+        if (isset($conversation) && app(RemoteControlService::class)->isEnabled($conversation)) {
+            StartRemoteControl::dispatch($conversation->uuid);
         }
     }
 
@@ -379,12 +392,20 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                     return true;
                 }
 
-                // Wait until the current tool call has finished. Do not kill the CLI
-                // during the first thinking phase (in-flight is also empty then).
-                return $conversation->provider_type === 'cursor_agent'
-                    && $cursorCompletedAtLeastOneTool
-                    && $cursorInFlightToolIds === []
-                    && $followUpQueue->hasItems($this->conversationUuid);
+                // Cursor: wait until one tool has finished, so the first thinking
+                // phase is not killed (in-flight is also empty then).
+                // Claude: inject as soon as no tool is running, including during text.
+                if (!CursorFollowUpPrompt::supports($conversation->provider_type)
+                    || $cursorInFlightToolIds !== []
+                    || !$followUpQueue->hasItems($this->conversationUuid)) {
+                    return false;
+                }
+
+                if ($conversation->provider_type === 'cursor_agent' && !$cursorCompletedAtLeastOneTool) {
+                    return false;
+                }
+
+                return true;
             });
         }
 
@@ -1421,82 +1442,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
      */
     private function calculateAndStoreTurns(Conversation $conversation): void
     {
-        $turns = $this->calculateTurns($conversation);
-
-        if (empty($turns)) {
-            return;
-        }
-
-        \Illuminate\Support\Facades\DB::transaction(function () use ($turns) {
-            foreach ($turns as $turnNumber => $messages) {
-                $messageIds = collect($messages)->pluck('id');
-                Message::whereIn('id', $messageIds)
-                    ->update(['turn_number' => $turnNumber]);
-            }
-        });
-    }
-
-    /**
-     * Calculate turns from conversation messages.
-     * Returns array of turn_number => messages[]
-     */
-    private function calculateTurns(Conversation $conversation): array
-    {
-        $messages = $conversation->messages()->orderBy('sequence')->get();
-        $turns = [];
-        $currentTurn = null;
-        $turnNumber = 0;
-        $hasResponse = false;
-
-        foreach ($messages as $message) {
-            $isRealUserMessage = $message->role === 'user'
-                && $this->hasRealUserContent($message);
-
-            if ($isRealUserMessage) {
-                if ($currentTurn !== null && $hasResponse) {
-                    // Previous turn is complete, save it
-                    $turns[$turnNumber] = $currentTurn;
-                    $turnNumber++;
-                    $currentTurn = [];
-                    $hasResponse = false;
-                }
-
-                // Start or continue building current turn
-                $currentTurn = $currentTurn ?? [];
-                $currentTurn[] = $message;
-            } else {
-                // Assistant or tool_result message
-                if ($currentTurn !== null) {
-                    $currentTurn[] = $message;
-
-                    if ($message->role === 'assistant') {
-                        $hasResponse = true;
-                    }
-                }
-            }
-        }
-
-        // Don't forget the last turn (if it has a response)
-        if ($currentTurn !== null && $hasResponse) {
-            $turns[$turnNumber] = $currentTurn;
-        }
-
-        return $turns;
-    }
-
-    /**
-     * Check if message has real user text (not just tool_result).
-     */
-    private function hasRealUserContent(Message $message): bool
-    {
-        $content = $message->content;
-
-        if (!is_array($content)) {
-            return is_string($content) && !empty($content);
-        }
-
-        return collect($content)
-            ->contains(fn($block) => ($block['type'] ?? '') === 'text');
+        app(\App\Services\ConversationTurnCalculator::class)->store($conversation);
     }
 
     /**
@@ -1531,7 +1477,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         int $prevCumulativeCacheRead,
         int $prevCumulativeCacheCreation,
     ): bool {
-        if ($conversation->provider_type !== 'cursor_agent') {
+        if (!CursorFollowUpPrompt::supports($conversation->provider_type)) {
             return false;
         }
 
@@ -1540,7 +1486,12 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             return false;
         }
 
-        if ($cursorToolsInFlight > 0 || !$cursorCompletedAtLeastOneTool) {
+        if ($cursorToolsInFlight > 0) {
+            return false;
+        }
+
+        // Cursor keeps the first thinking phase. Claude injects during text too.
+        if ($conversation->provider_type === 'cursor_agent' && !$cursorCompletedAtLeastOneTool) {
             return false;
         }
 
@@ -1591,7 +1542,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         ModelRepository $modelRepository,
         array $options,
     ): void {
-        if ($conversation->provider_type !== 'cursor_agent') {
+        if (!CursorFollowUpPrompt::supports($conversation->provider_type)) {
             return;
         }
 

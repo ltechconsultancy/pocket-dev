@@ -21,7 +21,8 @@
          @mouseup="if (mousedownOnBackdrop) $store.filePreview.closeAll()"></div>
 
     {{-- Modal Content --}}
-    <div class="relative w-full h-full md:h-[85vh] md:max-h-[85vh] md:max-w-4xl md:mx-4 md:rounded-lg bg-gray-900 flex flex-col overflow-hidden shadow-2xl"
+    <div class="relative w-full h-full bg-gray-900 flex flex-col overflow-hidden shadow-2xl"
+         :class="($store.filePreview.isImage || $store.filePreview.isVideo) ? '' : 'md:h-[85vh] md:max-h-[85vh] md:max-w-4xl md:mx-4 md:rounded-lg'"
          @click.stop>
 
         {{-- Header --}}
@@ -57,7 +58,7 @@
                         <button @click="$store.filePreview.copyContent()"
                                 class="p-2 text-gray-400 hover:text-white transition-colors rounded hover:bg-gray-700"
                                 title="Copy content"
-                                x-show="!$store.filePreview.loading && !$store.filePreview.stack.at(-1)?.error">
+                                x-show="!$store.filePreview.loading && !$store.filePreview.stack.at(-1)?.error && !$store.filePreview.isImage && !$store.filePreview.isVideo">
                             <template x-if="!$store.filePreview.copied">
                                 <i class="fa-regular fa-copy"></i>
                             </template>
@@ -80,6 +81,12 @@
                         </button>
 
                         {{-- Download button - show whenever a path is known, even for binary/too_large/error files --}}
+                        <button @click="$store.filePreview.toggleFullscreen()"
+                                class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
+                                title="Fullscreen"
+                                x-show="!$store.filePreview.loading && ($store.filePreview.isImage || $store.filePreview.isVideo)">
+                            <i class="fa-solid fa-expand"></i>
+                        </button>
                         <button @click="$store.filePreview.downloadFile()"
                                 class="p-2 text-gray-400 hover:text-white transition-colors rounded hover:bg-gray-700"
                                 title="Download file"
@@ -91,7 +98,7 @@
                         <button @click="$store.filePreview.startEditing()"
                                 class="p-2 text-gray-400 hover:text-white transition-colors rounded hover:bg-gray-700"
                                 title="Edit file"
-                                x-show="!$store.filePreview.loading && !$store.filePreview.stack.at(-1)?.error">
+                                x-show="!$store.filePreview.loading && !$store.filePreview.stack.at(-1)?.error && !$store.filePreview.isImage && !$store.filePreview.isVideo">
                             <i class="fa-regular fa-pen-to-square"></i>
                         </button>
 
@@ -178,6 +185,27 @@
                               :disabled="$store.filePreview.saving"
                               spellcheck="false"
                               x-init="$nextTick(() => $el.focus())"></textarea>
+                </div>
+            </template>
+
+            {{-- Image / video. Click the picture, or the expand button, for fullscreen. --}}
+            <template x-if="!$store.filePreview.loading && !$store.filePreview.error && $store.filePreview.isImage">
+                <div class="h-full w-full flex items-center justify-center bg-black min-h-0">
+                    <img id="file-preview-media"
+                         :src="$store.filePreview.mediaUrl"
+                         class="max-h-full max-w-full object-contain cursor-zoom-in"
+                         alt=""
+                         @click="$store.filePreview.toggleFullscreen()">
+                </div>
+            </template>
+            <template x-if="!$store.filePreview.loading && !$store.filePreview.error && $store.filePreview.isVideo">
+                <div class="h-full w-full flex items-center justify-center bg-black min-h-0">
+                    <video id="file-preview-media"
+                           :src="$store.filePreview.mediaUrl"
+                           class="max-h-full max-w-full"
+                           controls
+                           playsinline
+                           preload="none"></video>
                 </div>
             </template>
 

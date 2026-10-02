@@ -94,6 +94,74 @@ class ClaudeCodeProvider extends AbstractCliProvider
         Conversation $conversation,
         array $options
     ): string {
+        $parts = [
+            'claude',
+            '--print',
+            '--verbose',
+            '--output-format', 'stream-json',
+            '--include-partial-messages',
+            ...$this->buildSharedCliParts($conversation),
+        ];
+
+        // Use --resume for conversation continuity
+        $sessionId = $this->getSessionId($conversation);
+        if (!empty($sessionId)) {
+            $parts[] = '--resume';
+            $parts[] = escapeshellarg($sessionId);
+        }
+
+        // Add system prompt if provided
+        if (!empty($options['system'])) {
+            $parts[] = '--system-prompt';
+            $parts[] = escapeshellarg($options['system']);
+        }
+
+        return implode(' ', $parts);
+    }
+
+    /**
+     * Interactive command for Remote Control (claude.ai/code + Claude app).
+     *
+     * Same model/effort/tools/settings as a PocketDev turn, but without --print
+     * so the CLI registers a Remote Control session. Resumes the conversation's
+     * Claude session, or creates one with a fixed ID when the chat is empty.
+     */
+    public function buildRemoteControlCommand(
+        Conversation $conversation,
+        string $sessionName,
+        string $systemPromptFile,
+        string $sessionId,
+        bool $resume,
+        string $settingsFile
+    ): string {
+        $parts = [
+            'claude',
+            ...$this->buildSharedCliParts($conversation, $settingsFile),
+            '--remote-control', escapeshellarg($sessionName),
+            $resume ? '--resume' : '--session-id', escapeshellarg($sessionId),
+            '--system-prompt-file', escapeshellarg($systemPromptFile),
+        ];
+
+        return implode(' ', $parts);
+    }
+
+    /**
+     * Environment for the Remote Control process (same as a PocketDev turn).
+     */
+    public function buildRemoteControlEnvironment(Conversation $conversation): array
+    {
+        return $this->buildEnvironment($conversation, []);
+    }
+
+    /**
+     * Flags shared by print-mode turns and the interactive Remote Control session.
+     *
+     * @return string[]
+     */
+    private function buildSharedCliParts(
+        Conversation $conversation,
+        string $settingsFile = '/home/appuser/.claude/settings.json'
+    ): array {
         $model = config('ai.providers.claude_code.override_model')
             ?: $conversation->model
             ?: config('ai.providers.claude_code.default_model', 'opus');
@@ -129,22 +197,17 @@ class ClaudeCodeProvider extends AbstractCliProvider
         }
 
         $parts = [
-            'claude',
-            '--print',
-            '--verbose',
-            '--output-format', 'stream-json',
-            '--include-partial-messages',
             '--dangerously-skip-permissions',
             '--setting-sources', 'user,project,local',
-            '--settings', escapeshellarg('/home/appuser/.claude/settings.json'),
+            '--settings', escapeshellarg($settingsFile),
             '--model', escapeshellarg($model),
+            '--autocompact', 'auto',
         ];
 
-        // Use --resume for conversation continuity
-        $sessionId = $this->getSessionId($conversation);
-        if (!empty($sessionId)) {
-            $parts[] = '--resume';
-            $parts[] = escapeshellarg($sessionId);
+        $effort = $conversation->getReasoningConfig()['effort'] ?? null;
+        if (is_string($effort) && in_array($effort, ['low', 'medium', 'high', 'xhigh', 'max'], true)) {
+            $parts[] = '--effort';
+            $parts[] = escapeshellarg($effort);
         }
 
         // Add tools restriction if configured
@@ -153,13 +216,7 @@ class ClaudeCodeProvider extends AbstractCliProvider
             $parts[] = escapeshellarg(implode(',', $allowedTools));
         }
 
-        // Add system prompt if provided
-        if (!empty($options['system'])) {
-            $parts[] = '--system-prompt';
-            $parts[] = escapeshellarg($options['system']);
-        }
-
-        return implode(' ', $parts);
+        return $parts;
     }
 
     protected function prepareProcessInput(string $command, string $userMessage): array
@@ -187,18 +244,10 @@ class ClaudeCodeProvider extends AbstractCliProvider
         // Enable tool_progress heartbeats during tool execution
         $env['CLAUDE_CODE_CONTAINER_ID'] = 'pocketdev';
 
-        // Disable the CLI's automatic context compaction. The CLI determines its
-        // context window from server-sent SDK betas: Max subscribers receive the
-        // "context-1m-2025-08-07" beta and get a ~950K auto-compact threshold,
-        // while all other users default to 200K (auto-compact at ~180K). Because
-        // PocketDev uses OAuth and cannot control which betas the server sends,
-        // we disable auto-compact for everyone. Users can compact manually via
-        // the /compact command, which triggers at the right moment for their
-        // actual context window.
-        $env['DISABLE_AUTO_COMPACT'] = '1';
+        // Auto-compact stays on (--autocompact auto on the command). The CLI
+        // compacts before the prompt exceeds the model window.
 
-        // For 1M context agents, also bypass the CLI's hard blocking limit (~177K tokens).
-        // DISABLE_AUTO_COMPACT alone does NOT bypass this — separate code path.
+        // For 1M context agents, bypass the CLI's hard blocking limit (~177K tokens).
         if ($conversation->agent?->extended_context) {
             $env['CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE'] = '977000';
         }

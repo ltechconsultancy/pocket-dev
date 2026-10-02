@@ -402,6 +402,8 @@ Route::prefix('api')->group(function () {
         Route::patch('agent', [ConversationController::class, 'switchAgent']);
         Route::patch('title', [ConversationController::class, 'updateTitle']);
         Route::get('stream-log-path', [ConversationController::class, 'streamLogPath']);
+        Route::get('remote-control', [\App\Http\Controllers\Api\RemoteControlController::class, 'show']);
+        Route::post('remote-control', [\App\Http\Controllers\Api\RemoteControlController::class, 'update']);
     });
 
     /*
@@ -497,6 +499,7 @@ Route::prefix('api')->group(function () {
         Route::post('write', [FilePreviewController::class, 'write']);
         Route::post('check', [FilePreviewController::class, 'check']);
         Route::get('download', [FilePreviewController::class, 'download']);
+        Route::get('media', [FilePreviewController::class, 'media']);
         Route::post('upload', [FileUploadController::class, 'upload']);
         Route::post('delete', [FileUploadController::class, 'delete']);
     });

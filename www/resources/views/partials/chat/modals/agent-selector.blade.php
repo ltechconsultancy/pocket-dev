@@ -17,8 +17,8 @@
                 {{-- Filter info when in conversation with messages (provider is locked) --}}
                 <template x-if="currentConversationUuid && conversationProvider">
                     <div class="text-xs text-gray-400 mb-3 pb-2 border-b border-gray-700">
-                        <span x-text="'Showing agents for ' + getProviderDisplayName(conversationProvider)"></span>
-                        <span class="text-gray-500">(mid-conversation switch)</span>
+                        <span x-text="'This chat stays on ' + getProviderDisplayName(conversationProvider) + '.'"></span>
+                        <span class="text-gray-500"> Choosing another provider opens a new chat in this session.</span>
                     </div>
                 </template>
 

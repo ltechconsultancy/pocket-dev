@@ -464,6 +464,7 @@ class ConfigController extends Controller
                 'anthropic_thinking_budget' => 'nullable|integer|min:0',
                 'openai_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'claude_code_thinking_tokens' => 'nullable|integer|min:0',
+                'claude_code_effort' => 'nullable|string|in:low,medium,high,xhigh,max',
                 'codex_reasoning_effort' => 'nullable|string|in:none,minimal,low,medium,high,xhigh',
                 'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
                 'cursor_agent_thinking' => 'nullable|in:0,1',
@@ -595,6 +596,7 @@ class ConfigController extends Controller
                 'anthropic_thinking_budget' => 'nullable|integer|min:0',
                 'openai_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'claude_code_thinking_tokens' => 'nullable|integer|min:0',
+                'claude_code_effort' => 'nullable|string|in:low,medium,high,xhigh,max',
                 'codex_reasoning_effort' => 'nullable|string|in:none,minimal,low,medium,high,xhigh',
                 'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
                 'cursor_agent_thinking' => 'nullable|in:0,1',
@@ -762,9 +764,14 @@ class ConfigController extends Controller
             'openai_compatible' => isset($validated['openai_compatible_reasoning_effort'])
                 ? ['effort' => $validated['openai_compatible_reasoning_effort']]
                 : null,
-            'claude_code' => isset($validated['claude_code_thinking_tokens'])
-                ? ['thinking_tokens' => (int) $validated['claude_code_thinking_tokens']]
-                : null,
+            'claude_code' => ($claudeCodeConfig = array_filter([
+                'thinking_tokens' => array_key_exists('claude_code_thinking_tokens', $validated)
+                    ? (int) $validated['claude_code_thinking_tokens']
+                    : null,
+                'effort' => ($validated['claude_code_effort'] ?? '') !== ''
+                    ? $validated['claude_code_effort']
+                    : null,
+            ], fn ($v) => $v !== null)) !== [] ? $claudeCodeConfig : null,
             'codex' => isset($validated['codex_reasoning_effort'])
                 ? ['effort' => $validated['codex_reasoning_effort']]
                 : null,

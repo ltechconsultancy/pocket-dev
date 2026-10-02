@@ -25,6 +25,9 @@
             <i x-show="!isProcessing && !waitingForFinalTranscript && !isRecording" class="fa-solid fa-microphone"></i>
         </button>
 
+        {{-- Remote Control toggle (Claude app) --}}
+        @include('partials.chat.remote-control-toggle', ['sizeClass' => 'w-12'])
+
         {{-- Textarea with Skill Autocomplete --}}
         <div class="flex-1 min-w-0 relative">
             {{-- Active Skill Chip --}}

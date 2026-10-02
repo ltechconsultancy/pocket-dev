@@ -53,7 +53,8 @@ class FilePreviewController extends Controller
 
         // Detect image files by extension - render visually instead of as binary
         $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif', 'svg'];
-        if (in_array($extension, $imageExtensions)) {
+        $videoExtensions = ['mp4', 'webm', 'mov', 'ogg', 'm4v'];
+        if (in_array($extension, $imageExtensions, true) || in_array($extension, $videoExtensions, true)) {
             return response()->json([
                 'exists' => true,
                 'readable' => true,
@@ -62,7 +63,8 @@ class FilePreviewController extends Controller
                 'extension' => $extension,
                 'filename' => $filename,
                 'path' => $path,
-                'is_image' => true,
+                'is_image' => in_array($extension, $imageExtensions, true),
+                'is_video' => in_array($extension, $videoExtensions, true),
             ]);
         }
 
@@ -225,6 +227,309 @@ class FilePreviewController extends Controller
         }
 
         return response()->download($realPath);
+    }
+
+    /**
+     * Stream an image or video inline so the preview can render it.
+     */
+    public function media(Request $request): BinaryFileResponse|JsonResponse
+    {
+        $request->validate([
+            'path' => 'required|string',
+        ]);
+
+        $validation = $this->validatePath($request->input('path'));
+        if ($validation['error']) {
+            return response()->json($validation['response'], $validation['status']);
+        }
+
+        $realPath = $validation['realPath'];
+
+        if (!is_file($realPath) || !is_readable($realPath)) {
+            return response()->json(['error' => 'File not found or access denied'], 404);
+        }
+
+        // Video: only send a short slice per request. The player asks for the
+        // next slice as it plays, instead of downloading the whole file on play.
+        // MP4s with the index at the end cannot start until that index arrives,
+        // so those are rewritten once with the index at the front.
+        if ($this->isVideoPath($realPath)) {
+            $realPath = $this->fastStartVideo($realPath);
+            $this->clampVideoRange($request, $realPath);
+        }
+
+        return response()->file($realPath, [
+            'Accept-Ranges' => 'bytes',
+            'Cache-Control' => 'private, no-transform',
+        ]);
+    }
+
+    /**
+     * Return a playable path. MP4/MOV with the index (moov) after the media
+     * data is copied once with the index moved to the front.
+     */
+    private function fastStartVideo(string $realPath): string
+    {
+        $extension = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
+        if (!in_array($extension, ['mp4', 'mov', 'm4v'], true)) {
+            return $realPath;
+        }
+
+        $atoms = $this->readTopLevelAtoms($realPath);
+        if ($atoms === null) {
+            return $realPath;
+        }
+
+        $moov = null;
+        $mdat = null;
+        foreach ($atoms as $atom) {
+            if ($atom['type'] === 'moov' && $moov === null) {
+                $moov = $atom;
+            }
+            if ($atom['type'] === 'mdat' && $mdat === null) {
+                $mdat = $atom;
+            }
+        }
+
+        if ($moov === null || $mdat === null || $moov['offset'] < $mdat['offset']) {
+            return $realPath;
+        }
+
+        if ($moov['size'] > 32 * 1024 * 1024) {
+            return $realPath;
+        }
+
+        $cacheDir = '/tmp/pocketdev-video-cache';
+        if (!is_dir($cacheDir) && !mkdir($cacheDir, 0775, true) && !is_dir($cacheDir)) {
+            return $realPath;
+        }
+
+        $cache = $cacheDir.'/'.sha1($realPath.'|'.filemtime($realPath).'|'.filesize($realPath)).'.mp4';
+        if (is_file($cache) && filesize($cache) > 0) {
+            return $cache;
+        }
+
+        $moovData = file_get_contents($realPath, false, null, $moov['offset'], $moov['size']);
+        if ($moovData === false || strlen($moovData) !== $moov['size']) {
+            return $realPath;
+        }
+
+        if (str_contains($moovData, 'cmov')) {
+            return $realPath;
+        }
+
+        $moovData = $this->shiftChunkOffsets($moovData, $moov['size']);
+        $tmp = $cache.'.'.getmypid().'.tmp';
+        $in = fopen($realPath, 'rb');
+        $out = fopen($tmp, 'wb');
+        if ($in === false || $out === false) {
+            if (is_resource($in)) {
+                fclose($in);
+            }
+            if (is_resource($out)) {
+                fclose($out);
+            }
+
+            return $realPath;
+        }
+
+        foreach ($atoms as $atom) {
+            if ($atom['type'] === 'moov' || $atom['offset'] >= $mdat['offset']) {
+                continue;
+            }
+            $this->copyStreamRange($in, $out, $atom['offset'], $atom['size']);
+        }
+
+        fwrite($out, $moovData);
+        $this->copyStreamRange($in, $out, $mdat['offset'], $moov['offset'] - $mdat['offset']);
+        foreach ($atoms as $atom) {
+            if ($atom['offset'] > $moov['offset']) {
+                $this->copyStreamRange($in, $out, $atom['offset'], $atom['size']);
+            }
+        }
+        fclose($in);
+        fclose($out);
+
+        if (!rename($tmp, $cache)) {
+            @unlink($tmp);
+
+            return $realPath;
+        }
+
+        return $cache;
+    }
+
+    /**
+     * @return list<array{type: string, offset: int, size: int}>|null
+     */
+    private function readTopLevelAtoms(string $path): ?array
+    {
+        $size = filesize($path);
+        if ($size === false || $size < 8) {
+            return null;
+        }
+
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            return null;
+        }
+
+        $atoms = [];
+        $offset = 0;
+        while ($offset + 8 <= $size) {
+            fseek($handle, $offset);
+            $header = fread($handle, 8);
+            if (strlen($header) < 8) {
+                fclose($handle);
+
+                return null;
+            }
+
+            $atomSize = unpack('N', substr($header, 0, 4))[1];
+            $type = substr($header, 4, 4);
+            $headerSize = 8;
+            if ($atomSize === 1) {
+                $large = fread($handle, 8);
+                if (strlen($large) < 8) {
+                    fclose($handle);
+
+                    return null;
+                }
+                $atomSize = $this->unpackBe64($large);
+                $headerSize = 16;
+            } elseif ($atomSize === 0) {
+                $atomSize = $size - $offset;
+            }
+
+            if ($atomSize < $headerSize || $offset + $atomSize > $size) {
+                fclose($handle);
+
+                return null;
+            }
+
+            $atoms[] = ['type' => $type, 'offset' => $offset, 'size' => $atomSize];
+            $offset += $atomSize;
+        }
+
+        fclose($handle);
+
+        return $atoms;
+    }
+
+    private function shiftChunkOffsets(string $moov, int $shift): string
+    {
+        $length = strlen($moov);
+        $offset = 0;
+        while ($offset + 8 <= $length) {
+            $atomSize = unpack('N', substr($moov, $offset, 4))[1];
+            $type = substr($moov, $offset + 4, 4);
+            if ($atomSize < 8 || $offset + $atomSize > $length) {
+                break;
+            }
+
+            $dataStart = $offset + 8;
+            if ($type === 'stco') {
+                $count = unpack('N', substr($moov, $dataStart + 4, 4))[1];
+                $pos = $dataStart + 8;
+                for ($i = 0; $i < $count; $i++) {
+                    $value = unpack('N', substr($moov, $pos, 4))[1];
+                    $moov = substr_replace($moov, pack('N', $value + $shift), $pos, 4);
+                    $pos += 4;
+                }
+            } elseif ($type === 'co64') {
+                $count = unpack('N', substr($moov, $dataStart + 4, 4))[1];
+                $pos = $dataStart + 8;
+                for ($i = 0; $i < $count; $i++) {
+                    $value = $this->unpackBe64(substr($moov, $pos, 8));
+                    $moov = substr_replace($moov, $this->packBe64($value + $shift), $pos, 8);
+                    $pos += 8;
+                }
+            } elseif (in_array($type, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'edts', 'udta', 'mvex'], true)) {
+                $inner = $this->shiftChunkOffsets(substr($moov, $dataStart, $atomSize - 8), $shift);
+                $moov = substr_replace($moov, $inner, $dataStart, $atomSize - 8);
+            }
+
+            $offset += $atomSize;
+        }
+
+        return $moov;
+    }
+
+    private function unpackBe64(string $bytes): int
+    {
+        $parts = unpack('N2', $bytes);
+
+        return ($parts[1] << 32) | $parts[2];
+    }
+
+    private function packBe64(int $value): string
+    {
+        return pack('N2', ($value >> 32) & 0xFFFFFFFF, $value & 0xFFFFFFFF);
+    }
+
+    private function copyStreamRange($in, $out, int $offset, int $length): void
+    {
+        fseek($in, $offset);
+        $left = $length;
+        while ($left > 0) {
+            $chunk = fread($in, min(1024 * 1024, $left));
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
+            fwrite($out, $chunk);
+            $left -= strlen($chunk);
+        }
+    }
+
+    private function isVideoPath(string $realPath): bool
+    {
+        $extension = strtolower(pathinfo($realPath, PATHINFO_EXTENSION));
+
+        return in_array($extension, ['mp4', 'webm', 'mov', 'ogg', 'm4v'], true);
+    }
+
+    /**
+     * Shrink an open or oversized Range so one response stays about 1 MB.
+     * Small probes and tail requests (needed to find the MP4 header) stay intact.
+     */
+    private function clampVideoRange(Request $request, string $realPath): void
+    {
+        $size = filesize($realPath);
+        if ($size === false || $size < 2) {
+            return;
+        }
+
+        $max = 1024 * 1024;
+        $last = $size - 1;
+        $header = $request->header('Range');
+
+        if (!is_string($header) || !preg_match('/bytes=(\d*)-(\d*)/', $header, $matches)) {
+            $end = min($last, $max - 1);
+            $request->headers->set('Range', "bytes=0-$end");
+
+            return;
+        }
+
+        $startRaw = $matches[1];
+        $endRaw = $matches[2];
+
+        if ($startRaw === '' && $endRaw !== '') {
+            $suffix = (int) $endRaw;
+            if ($suffix > $max) {
+                $request->headers->set('Range', 'bytes=-'.$max);
+            }
+
+            return;
+        }
+
+        $start = $startRaw === '' ? 0 : (int) $startRaw;
+        if ($start > $last) {
+            return;
+        }
+
+        $end = $endRaw === '' ? $last : (int) $endRaw;
+        $end = min($end, $last, $start + $max - 1);
+        $request->headers->set('Range', "bytes=$start-$end");
     }
 
     /**

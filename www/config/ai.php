@@ -346,6 +346,19 @@ return [
         // Aliases (opus, sonnet) are kept at 200K until CLI 1M support is confirmed.
         // See: https://github.com/tetrixdev/pocket-dev/issues/238
         'claude_code' => [
+            // Opus 5.5 requires Claude Code CLI >= 2.1.280. Model id: claude-opus-5-5.
+            // 1M context on the Anthropic API / Max. Pricing is subscription-based (null).
+            [
+                'model_id'                      => 'claude-opus-5-5',
+                'display_name'                  => 'Claude Opus 5.5 (via CLI)',
+                'context_window'                => 1000000,
+                'max_context_window'            => 1000000,
+                'max_output_tokens'             => 128000,
+                'input_price_per_million'       => null,
+                'output_price_per_million'      => null,
+                'cache_write_price_per_million' => null,
+                'cache_read_price_per_million'  => null,
+            ],
             [
                 'model_id'                      => 'claude-opus-4-6',
                 'display_name'                  => 'Claude Opus 4.6 (via CLI)',

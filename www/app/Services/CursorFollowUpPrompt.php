@@ -7,6 +7,11 @@ namespace App\Services;
  */
 class CursorFollowUpPrompt
 {
+    public static function supports(string $providerType): bool
+    {
+        return in_array($providerType, ['cursor_agent', 'claude_code'], true);
+    }
+
     /**
      * @param  array<int, array{prompt: string, queued_at: string}>  $items
      */

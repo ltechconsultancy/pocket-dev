@@ -18,11 +18,14 @@
                 @click="toggleVoiceRecording()"
                 :class="voiceButtonClass"
                 :disabled="isProcessing || waitingForFinalTranscript"
-                class="px-4 py-[10px] min-w-[106px] rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:cursor-not-allowed"
-                title="Voice input (Ctrl+Space)"
+                class="w-11 py-[10px] rounded-lg text-base flex items-center justify-center transition-colors cursor-pointer disabled:cursor-not-allowed"
+                :title="isRecording ? 'Stop recording (Ctrl+Space)' : 'Voice input (Ctrl+Space)'"
                 @keydown.ctrl.space.window.prevent="toggleVoiceRecording()"
                 x-html="voiceButtonText">
         </button>
+
+        {{-- Remote Control toggle (Claude app) --}}
+        @include('partials.chat.remote-control-toggle', ['sizeClass' => 'w-11'])
 
         {{-- Attachment Button --}}
         <div x-data="{

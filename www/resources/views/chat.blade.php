@@ -110,6 +110,11 @@
                     get sanitizedHtml() { return this.current.sanitizedHtml || ''; },
                     get isBinary() { return this.current.isBinary || false; },
                     get isImage() { return this.current.isImage || false; },
+                    get isVideo() { return this.current.isVideo || false; },
+                    get mediaUrl() {
+                        if (!this.path || (!this.isImage && !this.isVideo)) return '';
+                        return '/api/file/media?path=' + encodeURIComponent(this.path);
+                    },
                     get readable() { return this.current.readable || false; },
                     get stackDepth() { return this.stack.length; },
 
@@ -138,6 +143,7 @@
                             readable: false,
                             isBinary: false,
                             isImage: false,
+                            isVideo: false,
                             isMarkdown: false,
                             isHtml: false,
                             sizeFormatted: '',
@@ -178,8 +184,9 @@
 
                             if (!data.exists) {
                                 updatedEntry.error = 'File not found';
-                            } else if (data.is_image) {
-                                updatedEntry.isImage = true;
+                            } else if (data.is_image || data.is_video) {
+                                updatedEntry.isImage = !!data.is_image;
+                                updatedEntry.isVideo = !!data.is_video;
                                 updatedEntry.filename = data.filename;
                                 updatedEntry.sizeFormatted = data.size_formatted;
                             } else if (data.too_large) {
@@ -290,6 +297,16 @@
                         if (history.state?.filePreview) {
                             // Go back through all preview history entries
                             history.go(-depth);
+                        }
+                    },
+
+                    toggleFullscreen() {
+                        const el = document.getElementById('file-preview-media');
+                        if (!el) return;
+                        if (document.fullscreenElement) {
+                            document.exitFullscreen();
+                        } else {
+                            el.requestFullscreen?.();
                         }
                     },
 
@@ -1889,7 +1906,7 @@
                     const activeUuid = this.activeChatConversationUuid();
                     if (!streamUuid || !activeUuid || streamUuid !== activeUuid) return false;
                     const provider = this.conversationProvider || this.provider || this.currentAgent?.provider;
-                    return provider === 'cursor_agent';
+                    return provider === 'cursor_agent' || provider === 'claude_code';
                 },
                 get _streamState() { return this._streamStore?._streamState ?? {}; },
                 set _streamState(val) { if (this._streamStore) this._streamStore._streamState = val; },
@@ -1949,6 +1966,10 @@
 
                 // Toast notification
                 toastMessage: '',
+                // Claude Code Remote Control for the current chat (see RemoteControlService)
+                remoteControl: { enabled: false, running: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false },
+                _remoteControlUuid: null,
+                _remoteControlPoll: null,
                 toastVisible: false,
 
                 // Mobile swipe navigation
@@ -2356,6 +2377,12 @@
                     });
 
                     // Sync active conversation status to screen data and sidebar session data
+                    // Remote Control state follows the open chat
+                    // (provider/screen can settle after the uuid, so watch those too)
+                    this.$watch('currentConversationUuid', () => this.refreshRemoteControl());
+                    this.$watch('conversationProvider', () => this.refreshRemoteControl());
+                    this.$watch('activeScreenId', () => this.refreshRemoteControl());
+
                     this.$watch('currentConversationStatus', (newStatus) => {
                         if (!newStatus) return;
 
@@ -2440,7 +2467,7 @@
                         }
                         if (lastSession && !lastSession.is_archived) {
                             this.debugLog('Restoring last session from workspace', { sessionId: this._lastSessionIdFromWorkspace });
-                            await this.loadSession(this._lastSessionIdFromWorkspace);
+                            await this.loadSession(this._lastSessionIdFromWorkspace, { replaceUrl: true });
                         } else {
                             // Session was deleted or archived - stay on home page
                             if (!history.state) {
@@ -2802,10 +2829,6 @@
                 },
 
                 get availableAgents() {
-                    // If in conversation, filter to same provider
-                    if (this.conversationProvider) {
-                        return this.agents.filter(a => a.provider === this.conversationProvider);
-                    }
                     return this.agents;
                 },
 
@@ -2918,6 +2941,16 @@
 
                 async selectAgent(agent, closeModal = true, { syncBackend = true } = {}) {
                     if (!agent) return;
+
+                    // A started chat cannot change provider. Open a new chat tab in this
+                    // session so the chosen agent is selectable without leaving the session.
+                    if (syncBackend && this.conversationProvider && agent.provider !== this.conversationProvider) {
+                        if (closeModal) {
+                            this.showAgentSelector = false;
+                        }
+                        await this.addChatScreen(agent.id);
+                        return;
+                    }
 
                     // If we have an active conversation AND we're switching to a different agent,
                     // update the backend first. This ensures the next message uses the new agent's
@@ -4041,7 +4074,11 @@
                 },
 
                 // Load a session by ID
-                async loadSession(sessionId) {
+                // replaceUrl: swap the current history entry instead of pushing one.
+                // Used when auto-restoring the last session on "/" so no invisible
+                // "home" entry sits behind it (mobile back gesture would land there,
+                // showing an empty chat that silently creates a NEW session on send).
+                async loadSession(sessionId, { replaceUrl = false } = {}) {
                     console.log('[DEBUG] loadSession called:', sessionId);
                     const previousSessionId = this.currentSession?.id;
                     if (previousSessionId && previousSessionId !== sessionId) {
@@ -4064,7 +4101,7 @@
 
                         // Update URL to session (only if different session)
                         if (this.currentSession?.id !== session.id) {
-                            this.updateSessionUrl(session.id);
+                            this.updateSessionUrl(session.id, { replace: replaceUrl });
                         }
 
                         // Save as last session for this workspace (for returning from settings - PHP session)
@@ -4903,7 +4940,7 @@
                 },
 
                 // Add a new chat screen
-                async addChatScreen() {
+                async addChatScreen(agentId = null) {
                     // If no session exists yet, create one first
                     if (!this.currentSession) {
                         try {
@@ -4933,8 +4970,10 @@
                     }
 
                     try {
-                        // Get default agent for new conversations (same logic as loadConversation)
-                        const defaultAgent = this.agents.find(a => a.is_default) || this.agents[0];
+                        // Prefer the agent the user picked; otherwise the workspace default
+                        const defaultAgent = (agentId && this.agents.find(a => a.id === agentId))
+                            || this.agents.find(a => a.is_default)
+                            || this.agents[0];
 
                         const response = await fetch(`/api/sessions/${this.currentSession.id}/screens/chat`, {
                             method: 'POST',
@@ -7105,12 +7144,104 @@
                     return true;
                 },
 
+                // ===== Claude Code Remote Control =====
+
+                get remoteControlAvailable() {
+                    return !!this.currentConversationUuid
+                        && (this.conversationProvider || this.provider) === 'claude_code'
+                        && this.getScreen(this.activeScreenId)?.type === 'chat';
+                },
+
+                get remoteControlTitle() {
+                    const rc = this.remoteControl;
+                    if (rc.connected) return `Remote Control aan: "${rc.name}" in de Claude-app (Code) of ${rc.url}. Klik om uit te zetten.`;
+                    if (rc.enabled) return this.isStreaming ? 'Remote Control start na dit antwoord…' : 'Remote Control verbindt…';
+                    return 'Remote Control: verder in de Claude-app / claude.ai';
+                },
+
+                applyRemoteControlStatus(data, uuid) {
+                    if (uuid !== this.currentConversationUuid) return; // Switched chats meanwhile
+                    const prev = this.remoteControl;
+                    const firstLoad = this._remoteControlUuid !== uuid;
+                    this._remoteControlUuid = uuid;
+
+                    if (!firstLoad) {
+                        if (data.connected && !prev.connected) {
+                            this.showToast(`Remote Control aan: open "${data.name}" in de Claude-app`);
+                        }
+                        if (data.error && data.error !== prev.error) {
+                            this.showToast(data.error);
+                        }
+                    }
+
+                    // Messages sent from the Claude app were imported: show them.
+                    // While streaming, keep the old marker so the next poll reloads.
+                    let importedAt = data.imported_at;
+                    if (!firstLoad && data.imported_at && data.imported_at !== prev.imported_at) {
+                        if (this.isStreaming) {
+                            importedAt = prev.imported_at;
+                        } else {
+                            this.loadConversationForScreen(uuid);
+                        }
+                    }
+
+                    this.remoteControl = { ...data, imported_at: importedAt, busy: false };
+
+                    // Poll while on, or while a stop is still in progress
+                    clearTimeout(this._remoteControlPoll);
+                    if (data.enabled || data.running || importedAt !== data.imported_at) {
+                        this._remoteControlPoll = setTimeout(() => this.refreshRemoteControl(), 4000);
+                    }
+                },
+
+                async refreshRemoteControl() {
+                    const uuid = this.currentConversationUuid;
+                    if (uuid !== this._remoteControlUuid) {
+                        clearTimeout(this._remoteControlPoll);
+                        this._remoteControlUuid = null;
+                        this.remoteControl = { enabled: false, running: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false };
+                    }
+                    if (!uuid || !this.remoteControlAvailable) return;
+
+                    try {
+                        const response = await fetch(`/api/conversations/${uuid}/remote-control`);
+                        if (!response.ok) return;
+                        this.applyRemoteControlStatus(await response.json(), uuid);
+                    } catch (e) {
+                        // Network hiccup: next poll/toggle retries
+                    }
+                },
+
+                async toggleRemoteControl() {
+                    const uuid = this.currentConversationUuid;
+                    if (!uuid || this.remoteControl.busy) return;
+                    const enable = !this.remoteControl.enabled;
+                    this.remoteControl.busy = true;
+
+                    try {
+                        const response = await fetch(`/api/conversations/${uuid}/remote-control`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                            body: JSON.stringify({ enabled: enable }),
+                        });
+                        const data = await response.json();
+                        if (!response.ok) throw new Error(data.error || data.message || `HTTP ${response.status}`);
+                        this.applyRemoteControlStatus(data, uuid);
+                        this.showToast(enable
+                            ? 'Remote Control wordt gestart…'
+                            : 'Remote Control uit: berichten uit de Claude-app worden geïmporteerd');
+                    } catch (err) {
+                        this.remoteControl.busy = false;
+                        this.showError('Remote Control: ' + err.message);
+                    }
+                },
+
                 get voiceButtonText() {
                     const spinnerSvg = '<svg class="animate-spin" style="width: 1em; height: 1em;" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
-                    if (this.isProcessing) return spinnerSvg + ' Connecting...';
-                    if (this.waitingForFinalTranscript) return spinnerSvg + ' Finishing...';
-                    if (this.isRecording) return '<i class="fa-solid fa-stop"></i> Stop';
-                    return '<i class="fa-solid fa-microphone"></i> Record';
+                    // Icon only (no label) to leave room for the Remote Control toggle
+                    if (this.isProcessing || this.waitingForFinalTranscript) return spinnerSvg;
+                    if (this.isRecording) return '<i class="fa-solid fa-stop"></i>';
+                    return '<i class="fa-solid fa-microphone"></i>';
                 },
 
                 get voiceButtonClass() {

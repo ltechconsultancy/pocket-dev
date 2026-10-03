@@ -7170,6 +7170,10 @@
                         if (data.connected && !prev.connected) {
                             this.showToast(`Remote Control aan: open "${data.name}" in de Claude-app`);
                         }
+                        // Mobile has no tooltip: explain the blue (paused) state once
+                        if (data.paused && !prev.paused) {
+                            this.showToast('Remote Control gepauzeerd: PocketDev werkt aan deze chat. Start vanzelf na het antwoord.');
+                        }
                         if (data.error && data.error !== prev.error) {
                             this.showToast(data.error);
                         }

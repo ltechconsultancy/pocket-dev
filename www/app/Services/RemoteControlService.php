@@ -499,14 +499,28 @@ class RemoteControlService
         }, $messages);
     }
 
+    /**
+     * Name shown in the Claude app: "PocketDev · {session} · {tab}".
+     * A session has several chat tabs, so the tab part keeps names unique:
+     * the tab label if set, else "#{chat number}" plus the chat title.
+     */
     public function sessionName(Conversation $conversation): string
     {
-        $title = trim((string) ($conversation->title ?? ''));
-        if ($title === '' || $title === 'New Chat') {
-            $title = $conversation->screen?->session?->name ?: 'chat';
+        $clean = fn(?string $text, int $max) => Str::limit(trim((string) preg_replace('/\s+/', ' ', (string) $text)), $max, '…');
+
+        $screen = $conversation->screen;
+        $session = $clean($screen?->session?->name, 30) ?: 'Sessie';
+
+        $tab = $clean($conversation->tab_label, 30);
+        if ($tab === '') {
+            $tab = '#' . ($screen?->chat_number ?: '?');
+            $title = $clean($conversation->title, 30);
+            if ($title !== '' && $title !== 'New Chat' && $title !== $session) {
+                $tab .= ' ' . $title;
+            }
         }
 
-        return 'PocketDev · ' . Str::limit(preg_replace('/\s+/', ' ', $title), 50, '…');
+        return "PocketDev · {$session} · {$tab}";
     }
 
     private function isCliNoise(string $text): bool

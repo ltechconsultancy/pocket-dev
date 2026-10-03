@@ -200,8 +200,8 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         }
 
         // Hand the session back to the Claude app if Remote Control is on
-        if (isset($conversation) && app(RemoteControlService::class)->isEnabled($conversation)) {
-            StartRemoteControl::dispatch($conversation->uuid);
+        if (isset($conversation)) {
+            app(RemoteControlService::class)->ensureStarted($conversation->fresh(), force: true);
         }
     }
 

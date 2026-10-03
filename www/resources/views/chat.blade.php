@@ -1967,7 +1967,7 @@
                 // Toast notification
                 toastMessage: '',
                 // Claude Code Remote Control for the current chat (see RemoteControlService)
-                remoteControl: { enabled: false, running: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false },
+                remoteControl: { enabled: false, running: false, paused: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false },
                 _remoteControlUuid: null,
                 _remoteControlPoll: null,
                 toastVisible: false,
@@ -7155,7 +7155,8 @@
                 get remoteControlTitle() {
                     const rc = this.remoteControl;
                     if (rc.connected) return `Remote Control aan: "${rc.name}" in de Claude-app (Code) of ${rc.url}. Klik om uit te zetten.`;
-                    if (rc.enabled) return this.isStreaming ? 'Remote Control start na dit antwoord…' : 'Remote Control verbindt…';
+                    if (rc.paused) return 'Remote Control gepauzeerd: PocketDev werkt aan deze chat. Start automatisch na dit antwoord.';
+                    if (rc.enabled) return 'Remote Control verbindt…';
                     return 'Remote Control: verder in de Claude-app / claude.ai';
                 },
 
@@ -7199,7 +7200,7 @@
                     if (uuid !== this._remoteControlUuid) {
                         clearTimeout(this._remoteControlPoll);
                         this._remoteControlUuid = null;
-                        this.remoteControl = { enabled: false, running: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false };
+                        this.remoteControl = { enabled: false, running: false, paused: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false };
                     }
                     if (!uuid || !this.remoteControlAvailable) return;
 

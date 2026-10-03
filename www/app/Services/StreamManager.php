@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Redis;
 class StreamManager
 {
     private const PREFIX = 'stream:';
-    private const TTL_STREAMING = 3600;      // 1 hour for active streams
+    private const TTL_STREAMING = 3600;      // 1 hour since the last event (refreshed on every append)
     private const TTL_COMPLETED = 1800;      // 30 minutes for completed streams (allows reconnection after slow refresh)
 
     // Instance properties for per-stream logging state (reset in startStream)
@@ -94,6 +94,10 @@ class StreamManager
         Redis::multi();
         Redis::rpush("{$key}:events", $json);
         Redis::expire("{$key}:events", self::TTL_STREAMING);
+        // Keep status/metadata alive too: they were only set at start and
+        // expired after 1 hour, mid-stream, on long sessions
+        Redis::expire("{$key}:status", self::TTL_STREAMING);
+        Redis::expire("{$key}:metadata", self::TTL_STREAMING);
         Redis::exec();
 
         // Publish after transaction completes - ensures event is in list first

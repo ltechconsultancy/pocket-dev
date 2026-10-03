@@ -41,7 +41,7 @@ return [
             'queue' => env('PD_DB_QUEUE', 'default'),
             // Job reservation timeout - must be longer than the longest job duration.
             // PocketDev AI jobs can run 60+ minutes. Default Laravel value (90s) is too short.
-            'retry_after' => (int) env('PD_DB_QUEUE_RETRY_AFTER', 3660),
+            'retry_after' => (int) env('PD_DB_QUEUE_RETRY_AFTER', 21660),
             'after_commit' => false,
         ],
 
@@ -51,7 +51,7 @@ return [
             'queue' => env('PD_BEANSTALKD_QUEUE', 'default'),
             // Job reservation timeout - must be longer than the longest job duration.
             // PocketDev AI jobs can run 60+ minutes. Default Laravel value (90s) is too short.
-            'retry_after' => (int) env('PD_BEANSTALKD_QUEUE_RETRY_AFTER', 3660),
+            'retry_after' => (int) env('PD_BEANSTALKD_QUEUE_RETRY_AFTER', 21660),
             'block_for' => 0,
             'after_commit' => false,
         ],
@@ -66,7 +66,7 @@ return [
             'region' => env('PD_AWS_DEFAULT_REGION', 'us-east-1'),
             // Job reservation timeout - must be longer than the longest job duration.
             // PocketDev AI jobs can run 60+ minutes. Default Laravel value (90s) is too short.
-            'retry_after' => (int) env('PD_SQS_QUEUE_RETRY_AFTER', 3660),
+            'retry_after' => (int) env('PD_SQS_QUEUE_RETRY_AFTER', 21660),
             'after_commit' => false,
         ],
 
@@ -76,7 +76,8 @@ return [
             'queue' => env('PD_REDIS_QUEUE', 'default'),
             // Job reservation timeout - must be longer than the longest job duration.
             // PocketDev AI jobs can run 60+ minutes. Default Laravel value (90s) is too short.
-            'retry_after' => (int) env('PD_REDIS_QUEUE_RETRY_AFTER', 3660),
+            // > ProcessConversationStream::$timeout (6h) + margin
+            'retry_after' => (int) env('PD_REDIS_QUEUE_RETRY_AFTER', 21660),
             'block_for' => null,
             'after_commit' => false,
         ],
@@ -95,7 +96,7 @@ return [
     */
 
     'batching' => [
-        'database' => env('PD_DB_CONNECTION', 'sqlite'),
+        'database' => env('PD_DB_CONNECTION', 'pgsql'),
         'table' => 'job_batches',
     ],
 
@@ -114,7 +115,8 @@ return [
 
     'failed' => [
         'driver' => env('PD_QUEUE_FAILED_DRIVER', 'database-uuids'),
-        'database' => env('PD_DB_CONNECTION', 'sqlite'),
+        // Same DB as the app (pgsql); 'sqlite' does not exist in PocketDev
+        'database' => env('PD_DB_CONNECTION', 'pgsql'),
         'table' => 'failed_jobs',
     ],
 

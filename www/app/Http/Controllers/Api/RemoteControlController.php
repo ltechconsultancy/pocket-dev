@@ -19,6 +19,8 @@ class RemoteControlController extends Controller
 
     public function show(Conversation $conversation): JsonResponse
     {
+        $this->remoteControl->ensureStarted($conversation);
+
         return response()->json($this->remoteControl->status($conversation));
     }
 

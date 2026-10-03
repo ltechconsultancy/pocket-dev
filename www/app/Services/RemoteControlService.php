@@ -68,18 +68,56 @@ class RemoteControlService
     {
         $dir = $this->dir($conversation);
         $running = $this->isRunning($conversation);
+        $enabled = $this->isEnabled($conversation);
         $url = $running ? $this->readFile("{$dir}/url") : null;
 
         return [
             'supported' => $this->isSupported($conversation),
-            'enabled' => $this->isEnabled($conversation),
+            'enabled' => $enabled,
             'running' => $running,
+            // On, but PocketDev is working on this chat: restarts after the turn
+            'paused' => $enabled && !$running && $this->isProcessing($conversation),
             'connected' => $running && $url !== null,
             'url' => $url,
             'name' => $this->sessionName($conversation),
             'error' => $this->readFile("{$dir}/error"),
             'imported_at' => $this->readFile("{$dir}/imported"),
         ];
+    }
+
+    /**
+     * Self-heal while the UI polls: on, no process, chat idle, and no start
+     * requested recently (e.g. a crash or a worker that missed the restart).
+     * $force skips the 90s debounce (end of a PocketDev turn). Duplicate starts
+     * are harmless: start() takes a lock and returns when already running.
+     */
+    public function ensureStarted(Conversation $conversation, bool $force = false): void
+    {
+        if (!$this->isSupported($conversation) || !$this->isEnabled($conversation)
+            || $this->isRunning($conversation) || $this->isProcessing($conversation)) {
+            return;
+        }
+
+        $marker = $this->dir($conversation) . '/dispatched';
+        clearstatcache(true, $marker);
+        if (!$force && is_file($marker) && time() - filemtime($marker) < 90) {
+            return;
+        }
+
+        $this->markDispatched($conversation);
+        StartRemoteControl::dispatch($conversation->uuid);
+    }
+
+    private function markDispatched(Conversation $conversation): void
+    {
+        $marker = $this->ensureDir($conversation) . '/dispatched';
+        @touch($marker);
+        @chmod($marker, 0666);
+    }
+
+    private function isProcessing(Conversation $conversation): bool
+    {
+        return Conversation::where('id', $conversation->id)->value('status') === Conversation::STATUS_PROCESSING;
     }
 
     /**
@@ -92,6 +130,7 @@ class RemoteControlService
         file_put_contents("{$dir}/enabled", (string) time());
         @chmod("{$dir}/enabled", 0666);
 
+        $this->markDispatched($conversation);
         StartRemoteControl::dispatch($conversation->uuid);
     }
 

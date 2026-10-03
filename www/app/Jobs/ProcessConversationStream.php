@@ -10,6 +10,7 @@ use App\Services\CursorFollowUpPrompt;
 use App\Services\CursorFollowUpQueue;
 use App\Services\ModelRepository;
 use App\Services\ProviderFactory;
+use App\Services\ConversationRunLock;
 use App\Services\RemoteControlService;
 use App\Services\RequestFlowLogger;
 use App\Services\StreamManager;
@@ -20,6 +21,8 @@ use App\Tools\ExecutionContext;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\MaxAttemptsExceededException;
+use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -75,6 +78,13 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         RequestFlowLogger::log('job.handle.start', 'Job handler started', [
             'prompt_length' => strlen($this->prompt),
         ]);
+
+        // Never run two Claude processes on the same chat: they kill each other
+        $runToken = $this->claimConversation($streamManager);
+        if ($runToken === null) {
+            RequestFlowLogger::endRequest('deferred');
+            return;
+        }
 
         try {
             $conversation = Conversation::where('uuid', $this->conversationUuid)
@@ -203,6 +213,8 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             RequestFlowLogger::endRequest('failed');
         }
 
+        ConversationRunLock::release($this->conversationUuid, $runToken);
+
         // Hand the session back to the Claude app if Remote Control is on
         if (isset($conversation)) {
             app(RemoteControlService::class)->ensureStarted($conversation->fresh(), force: true);
@@ -219,6 +231,24 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
     {
         RequestFlowLogger::startJob($this->conversationUuid, 'ProcessConversationStream::failed');
         RequestFlowLogger::logError('job.failed.entry', 'Job failed handler called', $exception);
+
+        // Redis handed this job to a second worker while the first still runs it
+        // (MaxAttempts, not a timeout). Marking the chat failed would make it look
+        // idle while Claude is still working, and new turns would collide with it.
+        if ($exception instanceof MaxAttemptsExceededException
+            && !$exception instanceof TimeoutExceededException
+            && ConversationRunLock::isHeld($this->conversationUuid)) {
+            Log::warning('ProcessConversationStream: duplicate pickup ignored, original job still running', [
+                'conversation' => $this->conversationUuid,
+            ]);
+            RequestFlowLogger::endRequest('duplicate_ignored');
+            return;
+        }
+
+        // This worker is being killed for running too long: free the chat
+        if ($exception instanceof TimeoutExceededException) {
+            ConversationRunLock::forceRelease($this->conversationUuid);
+        }
 
         Log::error('ProcessConversationStream: Job failed', [
             'conversation' => $this->conversationUuid,
@@ -1444,6 +1474,42 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
      * Calculate turns and update turn_number on messages.
      * A turn = real user message → all messages until next real user message (with response).
      */
+    /**
+     * Take the per-conversation run lock. When another live job is already
+     * working on this chat, hand our prompt to it as a mid-stream follow-up
+     * (Claude Code / Cursor), or wait for it to finish (other providers).
+     */
+    private function claimConversation(StreamManager $streamManager): ?string
+    {
+        $deadline = time() + $this->timeout;
+        $providerType = Conversation::where('uuid', $this->conversationUuid)->value('provider_type');
+
+        while (true) {
+            $token = ConversationRunLock::acquire($this->conversationUuid);
+            if ($token !== null) {
+                return $token;
+            }
+
+            if (empty($this->options['is_compact_command']) && CursorFollowUpPrompt::supports((string) $providerType)) {
+                app(CursorFollowUpQueue::class)->enqueue($this->conversationUuid, $this->prompt);
+                Log::warning('ProcessConversationStream: chat already running, prompt queued as follow-up', [
+                    'conversation' => $this->conversationUuid,
+                ]);
+                return null;
+            }
+
+            if (time() >= $deadline) {
+                Log::error('ProcessConversationStream: chat stayed locked, giving up', [
+                    'conversation' => $this->conversationUuid,
+                ]);
+                $streamManager->failStream($this->conversationUuid, 'Deze chat is nog bezig met een vorige beurt.');
+                return null;
+            }
+
+            sleep(2);
+        }
+    }
+
     private function calculateAndStoreTurns(Conversation $conversation): void
     {
         app(\App\Services\ConversationTurnCalculator::class)->store($conversation);

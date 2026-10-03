@@ -98,6 +98,8 @@ class StreamManager
         // expired after 1 hour, mid-stream, on long sessions
         Redis::expire("{$key}:status", self::TTL_STREAMING);
         Redis::expire("{$key}:metadata", self::TTL_STREAMING);
+        // The job's per-chat run lock stays alive as long as events flow
+        Redis::expire(ConversationRunLock::key($conversationUuid), ConversationRunLock::TTL_SECONDS);
         Redis::exec();
 
         // Publish after transaction completes - ensures event is in list first

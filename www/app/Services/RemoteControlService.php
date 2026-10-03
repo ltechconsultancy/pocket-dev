@@ -115,9 +115,14 @@ class RemoteControlService
         @chmod($marker, 0666);
     }
 
+    /**
+     * A PocketDev job owns this chat. The run lock is the reliable signal (the
+     * status column can say idle/failed while a job is still running).
+     */
     private function isProcessing(Conversation $conversation): bool
     {
-        return Conversation::where('id', $conversation->id)->value('status') === Conversation::STATUS_PROCESSING;
+        return ConversationRunLock::isHeld($conversation->uuid)
+            || Conversation::where('id', $conversation->id)->value('status') === Conversation::STATUS_PROCESSING;
     }
 
     /**
@@ -235,7 +240,8 @@ class RemoteControlService
             }
 
             // A PocketDev turn is running; the stream job restarts us when it ends.
-            if ($conversation->fresh()->status === Conversation::STATUS_PROCESSING) {
+            // Starting now would put two Claude processes on one session.
+            if ($this->isProcessing($conversation)) {
                 return;
             }
 

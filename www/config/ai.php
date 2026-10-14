@@ -15,6 +15,25 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Sub-agents
+    |--------------------------------------------------------------------------
+    |
+    | foreground_max_wait_seconds: how long a foreground `pd subagent:run` waits
+    | for the result. 0 = no limit. When a wait ends early the sub-agent keeps
+    | running and its result is pushed into the parent conversation.
+    |
+    | cli_bash_max_timeout_ms: BASH_MAX_TIMEOUT_MS for Claude Code, so a
+    | foreground sub-agent call (or any long command) is not capped at 10 min.
+    |
+    */
+
+    'subagent' => [
+        'foreground_max_wait_seconds' => (int) env('PD_SUBAGENT_FOREGROUND_MAX_WAIT', 0),
+        'cli_bash_max_timeout_ms' => (int) env('PD_CLI_BASH_MAX_TIMEOUT_MS', 6 * 3600 * 1000),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | AI Providers
     |--------------------------------------------------------------------------
     |

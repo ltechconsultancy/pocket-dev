@@ -21,6 +21,17 @@ class SubAgentRunCommand extends Command
     {
         $tool = new SubAgentTool();
 
+        // Print the task id before a foreground wait starts (on stderr, so stdout
+        // stays clean JSON). If the wait gets killed, the agent still knows which
+        // task is running; the result is then delivered as a notification.
+        if (!$this->option('background')) {
+            $tool->onTaskStarted = function ($task, $conversation) {
+                fwrite(STDERR, "Sub-agent task {$task->id} started (conversation {$conversation->uuid}). "
+                    . "Waiting for the result. If this wait is interrupted, the sub-agent keeps running "
+                    . "and its result is delivered to this conversation automatically.\n");
+            };
+        }
+
         $input = [
             'agent' => $this->option('agent') ?? '',
             'prompt' => $this->option('prompt') ?? '',

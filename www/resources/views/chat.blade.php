@@ -2520,6 +2520,38 @@
                     // Initialize panel iframe swipe listener for mobile tab switching
                     this.initPanelSwipeListener();
 
+                    // Pick up turns that start server-side while this chat sits idle, e.g. a
+                    // PocketDev sub-agent that finished and woke this conversation up with a
+                    // <subagent-notification>. Requires two consecutive sightings so it never
+                    // races with a message the user is sending right now.
+                    let idleStreamSeen = { uuid: null, count: 0 };
+                    setInterval(async () => {
+                        const uuid = this.currentConversationUuid;
+                        if (!uuid || document.hidden || this.isStreaming || this.loadingConversation) {
+                            idleStreamSeen = { uuid: null, count: 0 };
+                            return;
+                        }
+                        try {
+                            const res = await fetch(`/api/conversations/${uuid}/stream-status`);
+                            if (!res.ok) return;
+                            const data = await res.json();
+                            if (!data.is_streaming || this.currentConversationUuid !== uuid || this.isStreaming) {
+                                idleStreamSeen = { uuid: null, count: 0 };
+                                return;
+                            }
+                            idleStreamSeen = {
+                                uuid,
+                                count: idleStreamSeen.uuid === uuid ? idleStreamSeen.count + 1 : 1,
+                            };
+                            if (idleStreamSeen.count >= 2 && !this.loadingConversation) {
+                                idleStreamSeen = { uuid: null, count: 0 };
+                                await this.loadConversationForScreen(uuid);
+                            }
+                        } catch (e) {
+                            // Offline or transient error: try again on the next tick
+                        }
+                    }, 4000);
+
                     // Handle visibility changes (phone standby, tab switching)
                     // Refresh session screens when page becomes visible again
                     document.addEventListener('visibilitychange', async () => {

@@ -62,6 +62,10 @@ class AppTrayCommand extends Command
         if ($error = $this->validateFields($title, $url, $this->option('icon'), $this->option('subtitle'))) {
             return $this->failWith($error);
         }
+        // Agents add apps in parallel: never create a second tile with the same title
+        if (AppTrayItem::whereRaw('LOWER(title) = ?', [mb_strtolower($title)])->exists()) {
+            return $this->failWith("\"{$title}\" is already in the App Tray. Use `pd app-tray update --title=\"{$title}\"` (or link/unlink for sub-links).");
+        }
 
         $item = AppTrayItem::create([
             'title' => $title,

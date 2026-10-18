@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    @include('partials.pwa-head')
     <title>@yield('title', 'PocketDev')</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>

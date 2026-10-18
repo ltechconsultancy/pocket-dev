@@ -340,6 +340,15 @@
             <button @click="$store.debug.toggle(); showMobileDrawer = false" class="text-blue-400 hover:text-blue-300 cursor-pointer">
                 Debug Log
             </button>
+            {{-- PWA install (only when Chrome reports the app as installable) --}}
+            <button x-data="{ installable: !!window.pwaInstallPrompt }"
+                    x-show="installable" x-cloak
+                    @pwa-installable.window="installable = true"
+                    @pwa-installed.window="installable = false"
+                    @click="window.pwaInstall(); showMobileDrawer = false"
+                    class="text-blue-400 hover:text-blue-300 cursor-pointer">
+                <i class="fa-solid fa-download mr-1"></i>App installeren
+            </button>
         </div>
     </div>
 </div>

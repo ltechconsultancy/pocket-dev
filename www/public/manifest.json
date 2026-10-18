@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "PocketDev",
+  "short_name": "PocketDev",
+  "description": "AI-ontwikkelomgeving: chats met Claude Code, Cursor en Codex, panels en geheugen",
+  "lang": "nl",
+  "dir": "ltr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#111827",
+  "theme_color": "#1f2937",
+  "categories": ["developer", "productivity"],
+  "icons": [
+    {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ],
+  "shortcuts": [
+    {"name": "Instellingen", "short_name": "Instellingen", "url": "/config", "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"}]}
+  ]
+}

@@ -244,6 +244,14 @@ class ClaudeCodeProvider extends AbstractCliProvider
         // Enable tool_progress heartbeats during tool execution
         $env['CLAUDE_CODE_CONTAINER_ID'] = 'pocketdev';
 
+        // Allow long Bash calls (e.g. a foreground `pd subagent:run`); the CLI caps
+        // them at 10 minutes otherwise. The default per-call timeout is unchanged.
+        $bashMax = (int) config('ai.subagent.cli_bash_max_timeout_ms', 0);
+        if ($bashMax > 0) {
+            $env['BASH_MAX_TIMEOUT_MS'] = (string) $bashMax;
+        }
+
+
         // Auto-compact stays on (--autocompact auto on the command). The CLI
         // compacts before the prompt exceeds the model window.
 

@@ -21,6 +21,15 @@ use Illuminate\Support\Str;
  */
 class SubAgentRunner
 {
+    /**
+     * Optional hook called as soon as a task exists, before a foreground wait.
+     * The CLI uses it to print the task id up front, so it survives the wait
+     * being killed (Bash timeout, or the parent interrupted by a queued message).
+     *
+     * @var (callable(SubAgentTask, Conversation): void)|null
+     */
+    public $onTaskStarted = null;
+
     public function __construct(
         private readonly ConversationFactory $factory,
         private readonly StreamManager $streamManager,
@@ -104,6 +113,7 @@ class SubAgentRunner
         $conversation->startProcessing();
 
         ProcessConversationStream::dispatch($conversation->uuid, $prompt);
+        $this->notifyStarted($task, $conversation);
 
         Log::info('SubAgentRunner: task started', [
             'task_id' => $task->id,
@@ -121,12 +131,11 @@ class SubAgentRunner
                 'agent' => $agent->slug,
                 'provider' => $agent->provider,
                 'model' => $conversation->model,
-                'message' => "Background sub-agent started. Use SubAgentOutput with task_id '{$task->id}' to check status and retrieve output. Use SubAgentCancel with task_id '{$task->id}' to cancel.",
+                'message' => "Background sub-agent started. Its result is delivered to this conversation automatically as a <subagent-notification> message when it finishes (also if your turn has ended by then). No need to poll; use SubAgentOutput with task_id '{$task->id}' only to peek early. Use SubAgentCancel to stop it.",
             ], JSON_PRETTY_PRINT);
 
             $endTurnMessage = "Background sub-agent started (task `{$task->id}`, agent `{$agent->slug}`). "
-                . "Use SubAgentOutput to check status and retrieve results, "
-                . "or SubAgentCancel to stop it.";
+                . "Its result will be delivered to this conversation automatically when it finishes.";
 
             return ToolResult::successEndTurn($jsonOutput, $endTurnMessage);
         }
@@ -188,6 +197,7 @@ class SubAgentRunner
         $conversation->startProcessing();
 
         ProcessConversationStream::dispatch($conversation->uuid, $prompt);
+        $this->notifyStarted($task, $conversation);
 
         Log::info('SubAgentRunner: conversation resumed', [
             'task_id' => $task->id,
@@ -203,27 +213,54 @@ class SubAgentRunner
                 'conversation_id' => $conversation->uuid,
                 'status' => 'running',
                 'agent' => $agent->slug,
-                'message' => "Resumed conversation. Use SubAgentOutput with task_id '{$task->id}' to check status.",
+                'message' => "Resumed conversation. Its result is delivered to this conversation automatically when it finishes.",
             ], JSON_PRETTY_PRINT));
         }
 
         return $this->waitForCompletion($task, $conversation);
     }
 
+    private function notifyStarted(SubAgentTask $task, Conversation $conversation): void
+    {
+        if ($this->onTaskStarted === null) {
+            return;
+        }
+        try {
+            ($this->onTaskStarted)($task, $conversation);
+        } catch (\Throwable $e) {
+            Log::warning('SubAgentRunner: onTaskStarted hook failed', ['error' => $e->getMessage()]);
+        }
+    }
+
     /**
-     * Poll the conversation until it reaches a terminal state or times out.
+     * Poll the conversation until it reaches a terminal state.
+     *
+     * There is no hard limit by default (config ai.subagent.foreground_max_wait_seconds,
+     * 0 = unlimited). Whatever ends the wait early (a Bash timeout in the calling CLI, a
+     * queued user message that interrupts the parent, the optional limit) does NOT lose the
+     * result: if nobody claims it here, NotifyParentOfSubAgentCompletion pushes it into
+     * the parent conversation when the sub-agent finishes.
      */
     private function waitForCompletion(SubAgentTask $task, Conversation $conversation): ToolResult
     {
-        $maxWaitSeconds = 600; // 10 minutes
+        $maxWaitSeconds = (int) config('ai.subagent.foreground_max_wait_seconds', 0);
         $pollIntervalMicroseconds = 1_000_000; // 1 second
         $startTime = time();
 
-        while (time() - $startTime < $maxWaitSeconds) {
+        while ($maxWaitSeconds <= 0 || time() - $startTime < $maxWaitSeconds) {
             $conversation->refresh();
 
-            if (in_array($conversation->status, [Conversation::STATUS_IDLE, Conversation::STATUS_ARCHIVED], true)) {
+            $isDone = in_array($conversation->status, [Conversation::STATUS_IDLE, Conversation::STATUS_ARCHIVED], true);
+            $isFailed = $conversation->status === Conversation::STATUS_FAILED;
+
+            if ($isDone || $isFailed) {
+                // Claim the result so the parent is not notified a second time.
+                // Losing the claim only means a notification was already sent.
+                $task->claimDelivery('result_delivered_at');
                 $task->unsetRelation('childConversation');
+            }
+
+            if ($isDone) {
                 $output = $task->collectOutput();
                 return ToolResult::success(json_encode([
                     'task_id' => $task->id,
@@ -233,8 +270,7 @@ class SubAgentRunner
                 ], JSON_PRETTY_PRINT));
             }
 
-            if ($conversation->status === Conversation::STATUS_FAILED) {
-                $task->unsetRelation('childConversation');
+            if ($isFailed) {
                 $error = $task->getError();
                 return ToolResult::error("Sub-agent task '{$task->id}' failed: {$error}");
             }
@@ -245,8 +281,9 @@ class SubAgentRunner
         return ToolResult::success(json_encode([
             'task_id' => $task->id,
             'conversation_id' => $conversation->uuid,
-            'status' => 'timeout',
-            'message' => "Sub-agent did not complete within {$maxWaitSeconds} seconds. Use SubAgentOutput with task_id '{$task->id}' to check status later.",
+            'status' => 'running',
+            'message' => "Stopped waiting after {$maxWaitSeconds} seconds; the sub-agent keeps running. "
+                . 'Its result will be delivered to this conversation automatically when it finishes.',
         ], JSON_PRETTY_PRINT));
     }
 }

@@ -115,6 +115,9 @@ API;
         // Set the abort flag on the child conversation's stream.
         // ProcessConversationStream checks this flag in its event loop and will
         // shut down the child cleanly within ~1 second.
+        // Mark first: a cancelled task does not report back to the parent.
+        $task->update(['cancelled_at' => now()]);
+
         $streamManager = app(StreamManager::class);
         $streamManager->setAbortFlag($conversation->uuid);
 

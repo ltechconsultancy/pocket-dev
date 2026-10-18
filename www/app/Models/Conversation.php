@@ -65,6 +65,16 @@ class Conversation extends Model
             }
         });
 
+        // A sub-agent that stops processing (done, failed, aborted) reports back to
+        // its parent conversation. Cheap no-op for ordinary conversations.
+        static::updated(function (Conversation $conversation) {
+            if ($conversation->wasChanged('status')
+                && $conversation->getOriginal('status') === self::STATUS_PROCESSING
+                && in_array($conversation->status, [self::STATUS_IDLE, self::STATUS_FAILED], true)) {
+                \App\Jobs\NotifyParentOfSubAgentCompletion::dispatchIfSubAgent($conversation);
+            }
+        });
+
         // Clean up stream log file when conversation is deleted
         static::deleting(function (Conversation $conversation) {
             app(\App\Services\ConversationStreamLogger::class)->delete($conversation->uuid);

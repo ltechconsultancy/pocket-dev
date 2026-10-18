@@ -8,6 +8,13 @@ use Illuminate\Support\Str;
 
 class SubAgentTool extends Tool
 {
+    /**
+     * Optional hook passed to SubAgentRunner; called once the task exists.
+     *
+     * @var (callable(\App\Models\SubAgentTask, \App\Models\Conversation): void)|null
+     */
+    public $onTaskStarted = null;
+
     public string $name = 'SubAgent';
 
     public string $description = 'Spawn a child PocketDev agent to handle a task. Supports cross-provider delegation (e.g. Claude Code can call Codex and vice versa).';
@@ -47,10 +54,12 @@ Spawn a child PocketDev agent to handle a task using any configured provider. Th
 - For agents with `expose_as_tool = true`, prefer calling them directly by name (e.g. `agent_code_reviewer`) instead of using SubAgent
 
 ## Foreground Mode (default)
-Blocks until the sub-agent completes and returns its full output. Use for tasks where you need the result before continuing.
+Blocks until the sub-agent completes and returns its full output. There is no time limit on the wait. Use for short tasks where you need the result before continuing.
 
-## Background Mode
-Returns immediately with a task_id. Use SubAgentOutput to check status and retrieve results later. Ideal for parallelism.
+## Background Mode (preferred for anything longer than a few minutes)
+Returns immediately with a task_id. When the sub-agent finishes, its result is delivered to your conversation automatically as a `<subagent-notification>` message, even if your turn has already ended (you are woken up) or you are busy (it is queued and injected at the next safe point). So: start the agents, tell the user what is running, and end your turn. Do not poll in a loop. Ideal for parallelism.
+
+Sub-agents are independent PocketDev conversations: they keep running when your turn ends and when the user sends or queues a message. Claude Code's built-in Task/Agent tool does NOT survive that (it dies with your turn), so never use it for long work in PocketDev.
 
 ## Resuming a Conversation
 Pass `conversation_id` from a previous response to continue from where you left off. The sub-agent will see the full conversation history.
@@ -65,8 +74,9 @@ Pass `conversation_id` from a previous response to continue from where you left 
 - The sub-agent starts a fresh conversation (unless conversation_id is provided)
 - Write self-contained prompts with all necessary context
 - The sub-agent shares your working directory and workspace
-- Foreground mode has a 10-minute timeout
-- For background tasks, use SubAgentOutput to poll for completion
+- Foreground waits have no time limit. If the wait itself is cut off (Bash timeout, or a queued user message interrupts you), the sub-agent keeps running and its result is delivered to you automatically as a notification
+- For a foreground call via Bash, pass a long Bash timeout (e.g. 3600000 ms) or use background mode
+- Background results arrive automatically; SubAgentOutput is only for peeking at a running task
 - To stop a running background task, use SubAgentCancel with its task_id
 INSTRUCTIONS;
 
@@ -80,7 +90,8 @@ pd subagent:run --agent=codex-default --prompt="List all TODO comments in the co
 # Background: get task ID immediately
 pd subagent:run --agent=claude-code-default --prompt="Refactor the auth module" --background
 
-# Then check output later
+# The result arrives automatically as a <subagent-notification> message.
+# Optional: peek at a running task
 pd subagent:output --task-id=<uuid-from-above>
 ```
 CLI;
@@ -132,7 +143,10 @@ API;
             return ToolResult::error("Agent '{$agentIdentifier}' not found. Use an agent slug or UUID from the Available Agents list.");
         }
 
-        return app(SubAgentRunner::class)->run(
+        $runner = app(SubAgentRunner::class);
+        $runner->onTaskStarted = $this->onTaskStarted;
+
+        return $runner->run(
             $agent,
             $prompt,
             $isBackground,

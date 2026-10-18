@@ -20,10 +20,16 @@ class SubAgentTask extends Model
         'agent_id',
         'prompt',
         'is_background',
+        'result_delivered_at',
+        'parent_notified_at',
+        'cancelled_at',
     ];
 
     protected $casts = [
         'is_background' => 'boolean',
+        'result_delivered_at' => 'datetime',
+        'parent_notified_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     // -------------------------------------------------------------------------
@@ -48,6 +54,26 @@ class SubAgentTask extends Model
     // -------------------------------------------------------------------------
     // Derived methods (read from the child conversation live, no caching)
     // -------------------------------------------------------------------------
+
+    /**
+     * Atomically claim the right to hand this task's result to the parent.
+     *
+     * Exactly one of "foreground waiter returned it" or "notification pushed to the
+     * parent" wins, so the parent never gets the same result twice and never zero times.
+     *
+     * @param 'result_delivered_at'|'parent_notified_at' $column
+     */
+    public function claimDelivery(string $column): bool
+    {
+        $claimed = static::query()
+            ->whereKey($this->id)
+            ->whereNull('result_delivered_at')
+            ->whereNull('parent_notified_at')
+            ->whereNull('cancelled_at')
+            ->update([$column => now()]);
+
+        return $claimed === 1;
+    }
 
     /**
      * Get the current status of the subagent task.

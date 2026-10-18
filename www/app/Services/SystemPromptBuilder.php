@@ -584,6 +584,14 @@ PROMPT;
         $lines[] = "pd subagent:run --agent=<slug> --prompt=\"<task>\"";
         $lines[] = "```\n";
         $lines[] = "PocketDev manages all agent orchestration, context, and output. Bypassing it breaks tracking and output capture.\n";
+        $lines[] = "## Long or parallel work: use `--background`\n";
+        $lines[] = "```bash";
+        $lines[] = "pd subagent:run --agent=<slug> --prompt=\"<task>\" --background";
+        $lines[] = "```\n";
+        $lines[] = "- PocketDev sub-agents run as their own conversations. They keep running when your turn ends and when the user sends or queues a message.";
+        $lines[] = "- When one finishes, its result is delivered to you automatically as a `<subagent-notification>` message: you are woken up if idle, or it is queued if you are busy. Start the agents, tell the user what is running, and end your turn. Do not poll in a loop or sleep-wait.";
+        $lines[] = "- Claude Code's built-in Task/Agent tool dies the moment your turn ends or the user queues a message. Never use it for work that outlives a single turn.";
+        $lines[] = "- Foreground calls have no time limit. For a foreground call longer than 2 minutes, pass a long Bash timeout (e.g. `timeout: 3600000`). If a foreground wait is cut off anyway, the result still arrives as a notification.\n";
 
         if ($agents->isEmpty()) {
             return implode("\n", $lines);

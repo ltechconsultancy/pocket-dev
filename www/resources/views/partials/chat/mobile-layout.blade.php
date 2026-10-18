@@ -40,22 +40,19 @@
             <x-chat.context-progress :compact="true" />
         </div>
     </div>
-    {{-- App Tray + Conversation Menu Dropdown --}}
+    {{-- Conversation Menu (⋮) + App Tray (⊞, where the gear used to be) --}}
     <div class="relative flex items-center">
-        <button @click="openAppTray()" class="text-gray-300 hover:text-white p-2" title="Apps">
-            <i class="fa-solid fa-grip text-xl"></i>
-        </button>
         <button @click="showConversationMenu = !showConversationMenu"
                 @keydown.escape="showConversationMenu = false"
                 :aria-expanded="showConversationMenu"
                 aria-haspopup="true"
                 x-ref="conversationMenuBtn"
                 class="text-gray-300 hover:text-white p-2"
-                title="Menu">
-            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
+                title="Sessie- en chatacties">
+            <i class="fa-solid fa-ellipsis-vertical text-lg px-1"></i>
+        </button>
+        <button @click="openAppTray()" class="text-gray-300 hover:text-white p-2" title="Apps">
+            <i class="fa-solid fa-grip text-xl"></i>
         </button>
         {{-- Dropdown Menu - Teleported to body to escape stacking context --}}
         <template x-teleport="body">
@@ -81,13 +78,6 @@
                 <span class="flex-1">Workspace</span>
                 <span class="text-xs text-gray-400 truncate max-w-[80px]" x-text="currentWorkspace?.name || 'Default'"></span>
             </button>
-            {{-- Settings --}}
-            <a href="/config"
-               role="menuitem"
-               class="flex items-center gap-2 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600">
-                <i class="fa-solid fa-cog w-4 text-center"></i>
-                Settings
-            </a>
             {{-- Session Section Header --}}
             <div class="px-4 py-1.5 text-xs text-gray-500 uppercase tracking-wide border-t border-gray-600">Session</div>
             {{-- Archive/Restore Session --}}

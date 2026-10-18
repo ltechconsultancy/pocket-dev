@@ -1967,6 +1967,11 @@
 
                 // Toast notification
                 toastMessage: '',
+                // App Tray (link tiles added by agents via `pd app-tray`)
+                showAppTray: false,
+                appTrayItems: [],
+                appTrayLoading: false,
+                appTraySelected: null, // app whose sub-links are shown
                 // Claude Code Remote Control for the current chat (see RemoteControlService)
                 remoteControl: { enabled: false, running: false, paused: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false },
                 _remoteControlUuid: null,
@@ -7175,6 +7180,40 @@
                         return false;
                     }
                     return true;
+                },
+
+                // ===== App Tray =====
+
+                openAppTray() {
+                    this.appTraySelected = null;
+                    this.showAppTray = true;
+                    this.loadAppTray();
+                },
+
+                // Tile click: apps with sub-links open their detail view, others navigate
+                openAppTrayItem(item, event) {
+                    if (item.links && item.links.length) {
+                        event.preventDefault();
+                        this.appTraySelected = item;
+                        return;
+                    }
+                    if (!item.url.startsWith('/')) {
+                        this.showAppTray = false;
+                    }
+                },
+
+                async loadAppTray() {
+                    this.appTrayLoading = true;
+                    try {
+                        const response = await fetch('/api/app-tray', { headers: { 'Accept': 'application/json' } });
+                        if (response.ok) {
+                            this.appTrayItems = (await response.json()).items || [];
+                        }
+                    } catch (e) {
+                        // Offline: keep whatever was loaded before
+                    } finally {
+                        this.appTrayLoading = false;
+                    }
                 },
 
                 // ===== Claude Code Remote Control =====

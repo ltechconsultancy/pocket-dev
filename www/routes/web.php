@@ -415,6 +415,9 @@ Route::prefix('api')->group(function () {
     |
     */
 
+    // App Tray (link tiles added by agents via `pd app-tray`)
+    Route::get('app-tray', [\App\Http\Controllers\Api\AppTrayController::class, 'index']);
+
     Route::prefix('settings')->group(function () {
         Route::get('chat-defaults', [SettingsController::class, 'chatDefaults']);
         Route::post('chat-defaults', [SettingsController::class, 'updateChatDefaults']);

@@ -40,8 +40,11 @@
             <x-chat.context-progress :compact="true" />
         </div>
     </div>
-    {{-- Conversation Menu Dropdown --}}
-    <div class="relative">
+    {{-- App Tray + Conversation Menu Dropdown --}}
+    <div class="relative flex items-center">
+        <button @click="openAppTray()" class="text-gray-300 hover:text-white p-2" title="Apps">
+            <i class="fa-solid fa-grip text-xl"></i>
+        </button>
         <button @click="showConversationMenu = !showConversationMenu"
                 @keydown.escape="showConversationMenu = false"
                 :aria-expanded="showConversationMenu"

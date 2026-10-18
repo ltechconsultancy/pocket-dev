@@ -14,6 +14,7 @@
 @include('partials.chat.modals.rename-conversation')
 @include('partials.chat.modals.session-edit')
 @include('partials.chat.modals.restore-chat')
+@include('partials.chat.modals.app-tray')
 
 {{-- File Preview Modal --}}
 <x-file-preview-modal />

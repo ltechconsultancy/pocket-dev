@@ -131,6 +131,9 @@ class SubAgentTask extends Model
 
         $errorMessage = $conversation->messages()
             ->where('role', 'error')
+            // reorder(): the messages() relation already sorts by sequence ASC, which
+            // would otherwise win over the DESC below and return the FIRST message
+            ->reorder()
             ->orderByDesc('sequence')
             ->first();
 

@@ -1413,7 +1413,11 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         // We need to check if that assistant response has an 'interrupted' block
         $lastAssistantMessage = $conversation->messages()
             ->where('role', 'assistant')
-            ->orderBy('created_at', 'desc')
+            // reorder(): the messages() relation already sorts by sequence ASC, which
+            // would otherwise win over the DESC below and return the FIRST message
+            ->reorder()
+            ->orderByDesc('sequence')
+            ->orderByDesc('id')
             ->first();
 
         if (!$lastAssistantMessage) {
@@ -1446,7 +1450,11 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         // Get the last assistant message
         $lastAssistantMessage = $conversation->messages()
             ->where('role', 'assistant')
-            ->orderBy('created_at', 'desc')
+            // reorder(): the messages() relation already sorts by sequence ASC, which
+            // would otherwise win over the DESC below and return the FIRST message
+            ->reorder()
+            ->orderByDesc('sequence')
+            ->orderByDesc('id')
             ->first();
 
         // No previous assistant message - nothing to compare

@@ -207,6 +207,9 @@ class Conversation extends Model
     {
         $lastAssistant = $this->messages()
             ->where('role', Message::ROLE_ASSISTANT)
+            // reorder(): the messages() relation already sorts by sequence ASC, which
+            // would otherwise win over the DESC below and return the FIRST message
+            ->reorder()
             ->orderByDesc('sequence')
             ->orderByDesc('id')
             ->first();

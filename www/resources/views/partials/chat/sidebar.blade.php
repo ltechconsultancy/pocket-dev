@@ -1,12 +1,7 @@
 {{-- Desktop Sidebar --}}
 <div class="w-64 h-full bg-gray-800 border-r border-gray-700 flex flex-col">
     <div class="p-4 border-b border-gray-700">
-        <div class="flex items-center justify-between mb-3">
-            <h2 class="text-lg font-semibold">PocketDev</h2>
-            <button @click="openAppTray()" class="text-gray-400 hover:text-white p-1 cursor-pointer" title="Apps">
-                <i class="fa-solid fa-grip text-lg"></i>
-            </button>
-        </div>
+        <h2 class="text-lg font-semibold mb-3">PocketDev</h2>
         <div class="flex items-center gap-2">
             {{-- New session button (green) --}}
             <button @click="newSession()"

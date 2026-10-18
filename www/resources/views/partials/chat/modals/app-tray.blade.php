@@ -24,7 +24,7 @@
                        rel="noopener noreferrer"
                        @click="openAppTrayItem(item, $event)"
                        :title="item.subtitle ? item.title + ' - ' + item.subtitle : item.title"
-                       class="flex flex-col items-center text-center p-3 rounded-xl hover:bg-gray-700 transition-colors">
+                       class="flex flex-col items-center text-center rounded-xl hover:bg-gray-700 transition-colors" style="padding: 12px 4px;">
                         <span class="relative mb-2" style="width: 56px; height: 56px;">
                             <span class="flex items-center justify-center bg-gray-700 border border-gray-600 overflow-hidden text-2xl text-blue-400"
                                   style="width: 56px; height: 56px; border-radius: 16px;">
@@ -43,7 +43,7 @@
                                   style="right: -6px; bottom: -6px; width: 22px; height: 22px; font-size: 10px;"
                                   x-text="item.links ? item.links.length : ''"></span>
                         </span>
-                        <span class="text-sm text-gray-100 font-medium leading-tight truncate w-full" x-text="item.title"></span>
+                        <span class="text-gray-100 font-medium leading-tight truncate w-full" style="font-size: 13px;" x-text="item.title"></span>
                         <span x-show="item.subtitle" class="text-gray-400 leading-tight mt-0.5 line-clamp-2 w-full"
                               style="font-size: 11px;" x-text="item.subtitle"></span>
                     </a>

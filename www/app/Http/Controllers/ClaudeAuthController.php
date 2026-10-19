@@ -73,15 +73,7 @@ class ClaudeAuthController extends Controller
                 ], 422);
             }
 
-            // Create directory if it does not exist
-            $dir = dirname($this->credentialsPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            // Save the file
-            file_put_contents($this->credentialsPath, $content);
-            chmod($this->credentialsPath, 0600);
+            $this->writeCredentials($content);
 
             Log::info("[Claude Auth] Credentials file uploaded successfully");
 
@@ -138,15 +130,7 @@ class ClaudeAuthController extends Controller
                 ], 422);
             }
 
-            // Create directory if it does not exist
-            $dir = dirname($this->credentialsPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            // Save the file
-            file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT));
-            chmod($this->credentialsPath, 0600);
+            $this->writeCredentials(json_encode($data, JSON_PRETTY_PRINT));
 
             Log::info("[Claude Auth] Credentials saved from JSON input");
 
@@ -272,4 +256,41 @@ class ClaudeAuthController extends Controller
 
         return true;
     }
+
+    /**
+     * Write the credentials file atomically.
+     *
+     * php-fpm runs as www-data while the agent CLIs run as appuser, so whoever wrote
+     * the file last owns it. Writing a temp file and renaming it into place only needs
+     * write access on the directory, which both users have, so ownership no longer
+     * decides whether an upload succeeds. rename() is atomic, so a reader never sees a
+     * half-written file. chmod is best-effort: it fails when we do not own the file,
+     * and that must never turn a successful write into an error.
+     */
+    protected function writeCredentials(string $content): void
+    {
+        $dir = dirname($this->credentialsPath);
+        if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Could not create directory {$dir}.");
+        }
+        @chmod($dir, 0770);
+
+        $tmp = tempnam($dir, ".credentials-");
+        if ($tmp === false) {
+            throw new \RuntimeException("Could not create a temporary file in {$dir}.");
+        }
+
+        if (file_put_contents($tmp, $content) === false) {
+            @unlink($tmp);
+            throw new \RuntimeException("Could not write credentials file.");
+        }
+
+        @chmod($tmp, 0660);
+
+        if (!rename($tmp, $this->credentialsPath)) {
+            @unlink($tmp);
+            throw new \RuntimeException("Could not move credentials into place.");
+        }
+    }
+
 }

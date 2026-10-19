@@ -266,13 +266,17 @@ class OpenCodeProvider extends AbstractCliProvider
      */
     public static function discoverModels(): array
     {
-        $cached = Cache::get('opencode_go_models');
+        // Logged in, the CLI uses the account's model config (other variants than the
+        // public list, e.g. no variants for Qwen/MiniMax): cache both states separately.
+        $loggedIn = self::isLoggedIn();
+        $cacheKey = 'opencode_go_models' . ($loggedIn ? '' : '_anonymous');
+        $cached = Cache::get($cacheKey);
         if (is_array($cached)) {
             return $cached;
         }
 
         $entries = [];
-        $env = self::isLoggedIn() ? [] : ['OPENCODE_API_KEY' => 'pocketdev-model-listing'];
+        $env = $loggedIn ? [] : ['OPENCODE_API_KEY' => 'pocketdev-model-listing'];
         $list = json_decode(self::runCli('api --standalone model.list', 45, $env), true);
         foreach ((array) ($list['data'] ?? []) as $m) {
             if (($m['providerID'] ?? '') !== self::GO_PROVIDER || empty($m['modelID']) || ($m['enabled'] ?? true) === false) {
@@ -315,7 +319,7 @@ class OpenCodeProvider extends AbstractCliProvider
         usort($models, fn ($a, $b) => [$a['contributor'], strtolower($a['display_name'])]
             <=> [$b['contributor'], strtolower($b['display_name'])]);
 
-        Cache::put('opencode_go_models', $models, empty($models) ? 300 : 3600);
+        Cache::put($cacheKey, $models, empty($models) ? 300 : 3600);
 
         return $models;
     }

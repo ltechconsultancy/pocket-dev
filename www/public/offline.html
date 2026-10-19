@@ -3,29 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#1f2937">
+    <meta name="theme-color" content="#0a0a0a">
     <title>PocketDev - offline</title>
     <link rel="icon" href="/favicon.ico" sizes="any">
     <style>
         html, body { height: 100%; margin: 0; }
         body {
-            background: #111827; color: #e5e7eb;
-            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            background: #cafc03; color: #0a0a0a;
+            font-family: "Space Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; box-sizing: border-box;
         }
-        img { width: 72px; height: 72px; margin-bottom: 20px; }
-        h1 { font-size: 20px; margin: 0 0 8px; }
-        p { color: #9ca3af; margin: 0 0 24px; line-height: 1.5; }
-        button {
-            background: #3b82f6; color: #fff; border: 0; border-radius: 8px;
-            padding: 12px 24px; font-size: 15px; cursor: pointer;
+        .card {
+            background: #fafafa; border: 3px solid #0a0a0a; box-shadow: 8px 8px 0 #0a0a0a;
+            padding: 32px 28px; max-width: 420px;
         }
+        img { width: 80px; height: 80px; margin-bottom: 20px; box-shadow: 4px 4px 0 #0a0a0a; }
+        h1 { font-size: 22px; margin: 0 0 10px; text-transform: uppercase; letter-spacing: -.01em; font-weight: 800; }
+        p { color: #333; margin: 0 0 24px; line-height: 1.5; }
+        button {
+            background: #0a0a0a; color: #cafc03; border: 3px solid #0a0a0a; border-radius: 0;
+            padding: 12px 24px; font-size: 15px; font-weight: 800; text-transform: uppercase; cursor: pointer;
+            box-shadow: 4px 4px 0 #555;
+        }
+        button:active { transform: translate(4px, 4px); box-shadow: none; }
     </style>
 </head>
 <body>
-    <div>
+    <div class="card">
         <img src="/icons/icon-192.png" alt="">
-        <h1>Geen verbinding met PocketDev</h1>
+        <h1>Geen verbinding</h1>
         <p>Je bent offline of de server is niet bereikbaar.<br>Je chats lopen op de server gewoon door.</p>
         <button onclick="location.reload()">Opnieuw proberen</button>
     </div>

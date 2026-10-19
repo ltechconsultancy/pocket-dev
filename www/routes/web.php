@@ -148,10 +148,14 @@ Route::middleware(['auth', 'throttle:10,1'])->group(function () {
     Route::post("/cursor/auth/browser-start", [CursorAuthController::class, "startBrowserAuth"])->name("cursor.auth.browserStart");
     Route::delete("/cursor/auth/logout", [CursorAuthController::class, "logout"])->name("cursor.auth.logout");
 });
-// OpenCode Go: status page (login runs in a terminal: `opencode auth login opencode`)
-Route::middleware(['auth', 'throttle:20,1'])->group(function () {
+// OpenCode Go: status page + device login (StartOpenCodeDeviceAuthJob)
+Route::middleware(['auth', 'throttle:60,1'])->group(function () {
     Route::get("/opencode/auth", [OpenCodeAuthController::class, "index"])->name("opencode.auth");
     Route::get("/opencode/auth/status", [OpenCodeAuthController::class, "status"])->name("opencode.auth.status");
+    Route::post("/opencode/auth/login", [OpenCodeAuthController::class, "startLogin"])->name("opencode.auth.login");
+    Route::get("/opencode/auth/login-status", [OpenCodeAuthController::class, "loginStatus"])->name("opencode.auth.loginStatus");
+    Route::post("/opencode/auth/cancel", [OpenCodeAuthController::class, "cancelLogin"])->name("opencode.auth.cancel");
+    Route::post("/opencode/auth/logout", [OpenCodeAuthController::class, "logout"])->name("opencode.auth.logout");
 });
 // Laptop curl upload: CSRF-exempt, no session cookie — requires one-time upload_token
 // issued only from authenticated GET /cursor/auth (see CursorAuthController::uploadJson)

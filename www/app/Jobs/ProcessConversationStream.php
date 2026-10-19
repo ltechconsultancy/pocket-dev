@@ -429,7 +429,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                 // Cursor: wait until one tool has finished, so the first thinking
                 // phase is not killed (in-flight is also empty then).
                 // Claude: inject as soon as no tool is running, including during text.
-                if (!CursorFollowUpPrompt::supports($conversation->provider_type)
+                if (!CursorFollowUpPrompt::interruptsRun($conversation->provider_type)
                     || $cursorInFlightToolIds !== []
                     || !$followUpQueue->hasItems($this->conversationUuid)) {
                     return false;
@@ -1560,7 +1560,8 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         int $prevCumulativeCacheRead,
         int $prevCumulativeCacheCreation,
     ): bool {
-        if (!CursorFollowUpPrompt::supports($conversation->provider_type)) {
+        // Providers that can't interrupt safely (OpenCode) run follow-ups after the answer
+        if (!CursorFollowUpPrompt::interruptsRun($conversation->provider_type)) {
             return false;
         }
 

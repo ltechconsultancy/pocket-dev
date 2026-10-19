@@ -9,6 +9,16 @@ class CursorFollowUpPrompt
 {
     public static function supports(string $providerType): bool
     {
+        return in_array($providerType, ['cursor_agent', 'claude_code', 'opencode'], true);
+    }
+
+    /**
+     * Whether a queued follow-up may interrupt the running turn (once no tool is in flight).
+     * OpenCode reports a tool only after it finished, so a running command can't be seen:
+     * its follow-ups run right after the current answer instead.
+     */
+    public static function interruptsRun(string $providerType): bool
+    {
         return in_array($providerType, ['cursor_agent', 'claude_code'], true);
     }
 

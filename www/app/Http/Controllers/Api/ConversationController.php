@@ -523,7 +523,7 @@ class ConversationController extends Controller
             'last_event_id' => $lastEvent['event_id'] ?? null,  // For reconnection verification
             'metadata' => $metadata,
             'conversation_status' => $conversation->status,
-            'queued_followups' => $conversation->provider_type === 'cursor_agent'
+            'queued_followups' => CursorFollowUpPrompt::supports($conversation->provider_type)
                 ? $this->followUpQueue->list($conversation->uuid)
                 : [],
         ]);

@@ -1,0 +1,302 @@
+/* PocketDev - Brutalism theme (same design language as Turf / Studio / Lijstje).
+ *
+ * Active when <html data-theme="brutal-light"> or "brutal-dark" (set in partials/pwa-head
+ * from localStorage "pd-theme"). Classic = no data-theme, this file does nothing.
+ *
+ * PocketDev is built with Tailwind v4, whose utilities read CSS variables
+ * (bg-gray-900 -> var(--color-gray-900)). Redefining those variables restyles the whole
+ * app; the rules below add what variables can't: borders, hard shadows, type.
+ */
+
+@font-face {
+    font-family: 'Space Grotesk';
+    src: url('fonts/space-grotesk.woff2') format('woff2');
+    font-weight: 300 700;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('fonts/jetbrains-mono.woff2') format('woff2');
+    font-weight: 100 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* ---------------------------------------------------------------- tokens */
+
+html[data-theme^="brutal"] {
+    --b-accent: #cafc03;
+    --b-accent-ink: #0a0a0a;
+    --b-green: #00e05a;
+    --b-blue: #0066ff;
+    --b-red: #ff3333;
+    --b-yellow: #ffd400;
+    --b-bw: 2px;
+    --b-sh: 3px;
+    --b-sh-lg: 6px;
+
+    --font-sans: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+    --default-font-family: var(--font-sans);
+    --default-mono-font-family: var(--font-mono);
+
+    --radius-sm: 0;
+    --radius-md: 0;
+    --radius-lg: 0;
+    --radius-xl: 0;
+    --radius-2xl: 0;
+
+    /* Primary actions: blue -> lime, green -> Turf green */
+    --color-blue-600: var(--b-accent);
+    --color-blue-700: #b5e300;
+    --color-emerald-500: var(--b-green);
+    --color-emerald-600: var(--b-green);
+    --color-green-500: var(--b-green);
+    --color-green-600: var(--b-green);
+    --color-red-500: var(--b-red);
+    --color-red-600: var(--b-red);
+    --color-rose-500: var(--b-red);
+    --color-rose-600: var(--b-red);
+    --color-yellow-500: var(--b-yellow);
+    --color-amber-500: var(--b-yellow);
+}
+
+html[data-theme="brutal-dark"] {
+    --b-bg: #0a0a0a;
+    --b-paper: #121212;
+    --b-ink: #fafafa;
+    --b-line: #fafafa;
+    --b-muted: #a6a6a6;
+    --b-soft: #1c1c1c;
+    --b-soft-2: #2a2a2a;
+    --b-shadow: #fafafa;
+    color-scheme: dark;
+
+    --color-gray-950: #000000;
+    --color-gray-900: var(--b-bg);
+    --color-gray-800: var(--b-paper);
+    --color-gray-700: var(--b-soft);
+    --color-gray-600: var(--b-soft-2);
+    --color-gray-500: #8c8c8c;
+    --color-gray-400: var(--b-muted);
+    --color-gray-300: #d6d6d6;
+    --color-gray-200: #e8e8e8;
+    --color-gray-100: var(--b-ink);
+    --color-gray-50: #ffffff;
+}
+
+html[data-theme="brutal-light"] {
+    --b-bg: #fafafa;
+    --b-paper: #ffffff;
+    --b-ink: #0a0a0a;
+    --b-line: #0a0a0a;
+    --b-muted: #555555;
+    --b-soft: #ececec;
+    --b-soft-2: #dedede;
+    --b-shadow: #0a0a0a;
+    color-scheme: light;
+
+    /* The classic UI is dark: light text on dark grays. Flip the gray scale. */
+    --color-gray-950: #f2f2f2;
+    --color-gray-900: var(--b-bg);
+    --color-gray-800: var(--b-paper);
+    --color-gray-700: var(--b-soft);
+    --color-gray-600: var(--b-soft-2);
+    --color-gray-500: #6b6b6b;
+    --color-gray-400: var(--b-muted);
+    --color-gray-300: #2b2b2b;
+    --color-gray-200: #161616;
+    --color-gray-100: var(--b-ink);
+    --color-gray-50: var(--b-ink);
+    --color-white: var(--b-ink);           /* text-white = main text on light panels */
+    --color-black: #ffffff;
+
+    /* Dark tints (bg-blue-900/30 etc.) would muddy a light page: lighten them */
+    --color-blue-900: #cfe0ff;
+    --color-blue-950: #e3edff;
+    --color-purple-900: #ead9ff;
+    --color-amber-900: #ffeeb3;
+    --color-yellow-900: #fff3b0;
+    --color-red-900: #ffd3d3;
+    --color-red-950: #ffe3e3;
+    --color-green-900: #c8f7d8;
+    --color-emerald-900: #c8f7d8;
+    --color-rose-900: #ffd3dc;
+    --color-blue-300: #0047b3;
+    --color-blue-400: #0057d9;
+    --color-purple-300: #6b21a8;
+    --color-purple-400: #7e22ce;
+    --color-amber-400: #9a6700;
+    --color-yellow-400: #8a6d00;
+    --color-green-400: #0a7a35;
+    --color-emerald-400: #0a7a35;
+    --color-red-300: #c00000;
+    --color-red-400: #d10000;
+}
+
+/* ---------------------------------------------------------------- base */
+
+html[data-theme^="brutal"],
+html[data-theme^="brutal"] body {
+    background: var(--b-bg);
+    color: var(--b-ink);
+    font-family: var(--font-sans);
+}
+
+/* Real white surfaces (HTML previews, PDF pages) stay white */
+html[data-theme="brutal-light"] .bg-white {
+    background-color: #ffffff;
+}
+
+/* Text on bright accent surfaces is black */
+html[data-theme^="brutal"] :is(.bg-blue-600, .bg-emerald-500, .bg-emerald-600, .bg-green-500, .bg-green-600, .bg-yellow-500, .bg-amber-500),
+html[data-theme^="brutal"] :is(.bg-blue-600, .bg-emerald-500, .bg-emerald-600, .bg-green-500, .bg-green-600, .bg-yellow-500, .bg-amber-500) :is(.text-white, .text-gray-100, .text-gray-200, .text-gray-300, .text-gray-400, a) {
+    color: var(--b-accent-ink) !important;
+}
+/* ...and white on the strong red / blue / violet ones */
+html[data-theme^="brutal"] :is(.bg-red-500, .bg-red-600, .bg-rose-500, .bg-rose-600, .bg-violet-500, .bg-purple-500, .bg-blue-500),
+html[data-theme^="brutal"] :is(.bg-red-500, .bg-red-600, .bg-rose-500, .bg-rose-600, .bg-violet-500, .bg-purple-500, .bg-blue-500) :is(.text-white, i) {
+    color: #ffffff !important;
+}
+
+/* ---------------------------------------------------------------- borders */
+
+html[data-theme^="brutal"] .border { border-width: var(--b-bw); }
+html[data-theme^="brutal"] .border-t { border-top-width: var(--b-bw); }
+html[data-theme^="brutal"] .border-b { border-bottom-width: var(--b-bw); }
+html[data-theme^="brutal"] .border-l { border-left-width: var(--b-bw); }
+html[data-theme^="brutal"] .border-r { border-right-width: var(--b-bw); }
+html[data-theme^="brutal"] :is(.border-gray-500, .border-gray-600, .border-gray-700, .border-gray-800, .border-transparent:not([class*="border-green"])) {
+    border-color: var(--b-line);
+}
+html[data-theme^="brutal"] .border-transparent { border-color: transparent; }
+
+/* ---------------------------------------------------------------- surfaces */
+
+/* Chat bubbles (user + assistant) get the hard frame */
+html[data-theme^="brutal"] :is(.bg-blue-600, .bg-gray-800).px-4.py-3.rounded-lg {
+    border: var(--b-bw) solid var(--b-line);
+    box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow);
+}
+
+/* Floating panels, menus, modals */
+html[data-theme^="brutal"] :is(.shadow, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl) {
+    --tw-shadow: var(--b-sh-lg) var(--b-sh-lg) 0 var(--b-shadow);
+    box-shadow: var(--b-sh-lg) var(--b-sh-lg) 0 var(--b-shadow) !important;
+}
+html[data-theme^="brutal"] :is(.shadow, .shadow-md, .shadow-lg, .shadow-xl, .shadow-2xl):not(.rounded-full) {
+    border: var(--b-bw) solid var(--b-line);
+}
+
+/* Primary buttons: framed, hard shadow, press-in on click */
+html[data-theme^="brutal"] button:is(.bg-blue-600, .bg-emerald-500, .bg-emerald-600, .bg-green-600, .bg-red-600, .bg-rose-600, .bg-violet-500),
+html[data-theme^="brutal"] a:is(.bg-blue-600, .bg-emerald-600) {
+    border: var(--b-bw) solid var(--b-line);
+    box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow);
+    font-weight: 700;
+    transition: transform .06s, box-shadow .06s;
+}
+html[data-theme^="brutal"] button:is(.bg-blue-600, .bg-emerald-500, .bg-emerald-600, .bg-green-600, .bg-red-600, .bg-rose-600, .bg-violet-500):active {
+    transform: translate(var(--b-sh), var(--b-sh));
+    box-shadow: none;
+}
+
+/* Inputs */
+html[data-theme^="brutal"] :is(textarea, input[type="text"], input[type="search"], input[type="password"], input[type="email"], input[type="url"], input[type="number"], select) {
+    border: var(--b-bw) solid var(--b-line) !important;
+    border-radius: 0 !important;
+    background-color: var(--b-paper);
+    color: var(--b-ink);
+}
+html[data-theme^="brutal"] :is(textarea, input):focus {
+    outline: none;
+    box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-accent) !important;
+}
+html[data-theme^="brutal"] ::placeholder { color: var(--b-muted); }
+
+/* Active chat tab: ink block with lime shadow (like the mockup) */
+html[data-theme^="brutal"] [data-screen-tab] > button.bg-gray-700 {
+    background: var(--b-ink);
+    color: var(--b-bg);
+    border-color: var(--b-ink);
+    box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-accent);
+}
+html[data-theme^="brutal"] [data-screen-tab] > button.bg-gray-700 * { color: inherit; }
+
+/* Active session in the sidebar / drawer: lime */
+html[data-theme^="brutal"] .group.bg-gray-700 {
+    background: var(--b-accent);
+    color: var(--b-accent-ink);
+    border: var(--b-bw) solid var(--b-line);
+    box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow);
+}
+html[data-theme^="brutal"] .group.bg-gray-700 :is(.text-gray-300, .text-gray-400, .text-gray-500) {
+    color: var(--b-accent-ink);
+}
+
+/* ---------------------------------------------------------------- type */
+
+html[data-theme^="brutal"] h1,
+html[data-theme^="brutal"] h2,
+html[data-theme^="brutal"] h3 {
+    text-transform: uppercase;
+    letter-spacing: -.01em;
+    font-weight: 700;
+}
+html[data-theme^="brutal"] :is(code, pre, kbd, .font-mono) {
+    font-family: var(--font-mono);
+}
+html[data-theme^="brutal"] .markdown-content :is(pre) {
+    border: var(--b-bw) solid var(--b-line);
+    border-radius: 0;
+}
+html[data-theme^="brutal"] .markdown-content :not(pre) > code {
+    background: var(--b-soft);
+    border: 1px solid var(--b-line);
+    padding: 0 .3em;
+}
+html[data-theme^="brutal"] .markdown-content a { color: inherit; text-decoration: underline; text-decoration-thickness: 2px; }
+html[data-theme^="brutal"] .markdown-content mark,
+html[data-theme^="brutal"] .markdown-content strong { background: linear-gradient(transparent 55%, color-mix(in srgb, var(--b-accent) 70%, transparent) 55%); }
+
+/* Scrollbars */
+html[data-theme^="brutal"] ::-webkit-scrollbar-thumb { background: var(--b-ink); border-radius: 0; }
+html[data-theme^="brutal"] * { scrollbar-color: var(--b-ink) transparent; }
+
+/* ---------------------------------------------------------------- fixed colors in app.css / chat.blade.php */
+
+html[data-theme^="brutal"] .bg-gray-750,
+html[data-theme^="brutal"] .hover\:bg-gray-750:hover { background-color: var(--b-soft); }
+html[data-theme^="brutal"] .bg-gray-850,
+html[data-theme^="brutal"] .hover\:bg-gray-850:hover { background-color: var(--b-paper); }
+
+html[data-theme^="brutal"] :is(.markdown-content, .prose-preview) pre {
+    background: var(--b-soft);
+    color: var(--b-ink);
+    border: var(--b-bw) solid var(--b-line);
+    border-radius: 0;
+}
+html[data-theme^="brutal"] :is(.markdown-content, .prose-preview) :not(pre) > code {
+    background: var(--b-soft);
+    color: var(--b-ink);
+    border: 1px solid var(--b-line);
+    border-radius: 0;
+}
+html[data-theme^="brutal"] :is(.markdown-content, .prose-preview) :is(th, td) { border-color: var(--b-line); }
+html[data-theme^="brutal"] :is(.markdown-content, .prose-preview) th { background: var(--b-soft); }
+html[data-theme^="brutal"] :is(.markdown-content, .prose-preview) blockquote { border-left-color: var(--b-ink); color: var(--b-muted); }
+html[data-theme^="brutal"] :is(.markdown-content, .prose-preview) hr { border-color: var(--b-line); }
+html[data-theme^="brutal"] .prose-preview,
+html[data-theme^="brutal"] .prose-preview :is(h1, h2, h3, h4, strong) { color: var(--b-ink); }
+/* Text inside a lime user bubble stays black, incl. code */
+html[data-theme^="brutal"] .bg-blue-600 .markdown-content :is(code, pre) { background: rgba(0,0,0,.08); color: var(--b-accent-ink); border-color: var(--b-accent-ink); }
+
+/* Settings menu (layouts/config.blade.php has fixed colors) */
+html[data-theme^="brutal"] .category-button:hover { background: var(--b-soft); }
+html[data-theme^="brutal"] .category-button.active {
+    background: var(--b-accent);
+    color: var(--b-accent-ink);
+    border-left-color: var(--b-ink);
+    font-weight: 700;
+}

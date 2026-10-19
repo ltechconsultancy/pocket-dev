@@ -70,6 +70,26 @@
                  x-transition:leave-end="opacity-0 scale-95"
                  class="md:hidden fixed w-48 bg-gray-700 rounded-lg shadow-lg border border-gray-600 z-[100] overflow-hidden"
                  :style="{ top: ($refs.conversationMenuBtn?.getBoundingClientRect().bottom + 4) + 'px', right: '8px' }">
+            {{-- Theme: Classic / Brutalism (+ Licht / Donker) --}}
+            <div class="px-4 py-2 border-b border-gray-600" @click.stop>
+                <div class="text-xs text-gray-400 mb-1">Thema</div>
+                <div class="flex gap-1">
+                    <button type="button" @click="setTheme('classic')"
+                            :class="theme === 'classic' ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'"
+                            class="flex-1 text-xs py-1.5 rounded cursor-pointer">Classic</button>
+                    <button type="button" @click="setTheme(theme === 'classic' ? 'brutal-dark' : theme)"
+                            :class="theme !== 'classic' ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'"
+                            class="flex-1 text-xs py-1.5 rounded cursor-pointer">Brutalism</button>
+                </div>
+                <div x-show="theme !== 'classic'" class="flex gap-1 mt-1">
+                    <button type="button" @click="setTheme('brutal-light')"
+                            :class="theme === 'brutal-light' ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'"
+                            class="flex-1 text-xs py-1.5 rounded cursor-pointer"><i class="fa-solid fa-sun mr-1"></i>Licht</button>
+                    <button type="button" @click="setTheme('brutal-dark')"
+                            :class="theme === 'brutal-dark' ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'"
+                            class="flex-1 text-xs py-1.5 rounded cursor-pointer"><i class="fa-solid fa-moon mr-1"></i>Donker</button>
+                </div>
+            </div>
             {{-- Workspace --}}
             <button @click="openWorkspaceSelector(); showConversationMenu = false"
                     role="menuitem"

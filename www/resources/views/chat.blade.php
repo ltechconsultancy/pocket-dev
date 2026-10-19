@@ -1372,6 +1372,26 @@
                              x-transition:leave-end="transform opacity-0 scale-95"
                              class="hidden md:block fixed w-48 bg-gray-700 rounded-lg shadow-lg border border-gray-600 z-[100] overflow-hidden"
                              style="top: 50px; right: 8px;">
+                            {{-- Theme: Classic / Brutalism (+ Licht / Donker) --}}
+                            <div class="px-4 py-2 border-b border-gray-600" @click.stop>
+                                <div class="text-xs text-gray-400 mb-1">Thema</div>
+                                <div class="flex gap-1">
+                                    <button type="button" @click="setTheme('classic')"
+                                            :class="theme === 'classic' ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'"
+                                            class="flex-1 text-xs py-1.5 rounded cursor-pointer">Classic</button>
+                                    <button type="button" @click="setTheme(theme === 'classic' ? 'brutal-dark' : theme)"
+                                            :class="theme !== 'classic' ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'"
+                                            class="flex-1 text-xs py-1.5 rounded cursor-pointer">Brutalism</button>
+                                </div>
+                                <div x-show="theme !== 'classic'" class="flex gap-1 mt-1">
+                                    <button type="button" @click="setTheme('brutal-light')"
+                                            :class="theme === 'brutal-light' ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'"
+                                            class="flex-1 text-xs py-1.5 rounded cursor-pointer"><i class="fa-solid fa-sun mr-1"></i>Licht</button>
+                                    <button type="button" @click="setTheme('brutal-dark')"
+                                            :class="theme === 'brutal-dark' ? 'bg-blue-600 text-white' : 'bg-gray-600 text-gray-200 hover:bg-gray-500'"
+                                            class="flex-1 text-xs py-1.5 rounded cursor-pointer"><i class="fa-solid fa-moon mr-1"></i>Donker</button>
+                                </div>
+                            </div>
                             {{-- Workspace --}}
                             <button @click="openWorkspaceSelector(); showConversationMenu = false"
                                     class="flex items-center gap-2 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600 w-full text-left cursor-pointer">
@@ -1969,6 +1989,8 @@
 
                 // Toast notification
                 toastMessage: '',
+                // Theme: 'classic' | 'brutal-light' | 'brutal-dark' (per device, see partials/pwa-head)
+                theme: document.documentElement.getAttribute('data-theme') || 'classic',
                 // App Tray (link tiles added by agents via `pd app-tray`)
                 showAppTray: false,
                 appTrayItems: [],
@@ -7210,6 +7232,19 @@
                         return false;
                     }
                     return true;
+                },
+
+                // ===== Theme =====
+
+                setTheme(theme) {
+                    this.theme = ['brutal-light', 'brutal-dark'].includes(theme) ? theme : 'classic';
+                    try { localStorage.setItem('pd-theme', this.theme); } catch (e) {}
+                    if (this.theme === 'classic') {
+                        document.documentElement.removeAttribute('data-theme');
+                    } else {
+                        document.documentElement.setAttribute('data-theme', this.theme);
+                    }
+                    document.querySelector('meta[name=theme-color]')?.setAttribute('content', window.pdThemeColor());
                 },
 
                 // ===== Sub-agents of this session =====

@@ -2217,6 +2217,32 @@
                     this._initDone = true;
                     this.debugLog('init() started');
 
+                    // Track input heights for dynamic messages container positioning.
+                    // Must run before the awaits below: on a chat that is streaming, init()
+                    // waits on the live stream and never got here (input could cover messages).
+                    this.$nextTick(() => {
+                        if (this.$refs.mobileInput) {
+                            const resizeObserver = new ResizeObserver((entries) => {
+                                for (const entry of entries) {
+                                    // Add 1px for border-top on input container
+                                    this.mobileInputHeight = entry.contentRect.height + 1;
+                                }
+                            });
+                            resizeObserver.observe(this.$refs.mobileInput);
+                        }
+
+                        if (this.$refs.desktopInput) {
+                            const desktopResizeObserver = new ResizeObserver((entries) => {
+                                for (const entry of entries) {
+                                    // Add 1px for border-top on input container
+                                    this.desktopInputHeight = entry.contentRect.height + 1;
+                                }
+                            });
+                            desktopResizeObserver.observe(this.$refs.desktopInput);
+                        }
+                    });
+
+
                     try {
                         const raw = sessionStorage.getItem('pocketdev_session_ui');
                         if (raw) {
@@ -2601,29 +2627,6 @@
                                     this.refreshSessionScreens();
                                 }, 500);
                             }
-                        }
-                    });
-
-                    // Track input heights for dynamic messages container positioning
-                    this.$nextTick(() => {
-                        if (this.$refs.mobileInput) {
-                            const resizeObserver = new ResizeObserver((entries) => {
-                                for (const entry of entries) {
-                                    // Add 1px for border-top on input container
-                                    this.mobileInputHeight = entry.contentRect.height + 1;
-                                }
-                            });
-                            resizeObserver.observe(this.$refs.mobileInput);
-                        }
-
-                        if (this.$refs.desktopInput) {
-                            const desktopResizeObserver = new ResizeObserver((entries) => {
-                                for (const entry of entries) {
-                                    // Add 1px for border-top on input container
-                                    this.desktopInputHeight = entry.contentRect.height + 1;
-                                }
-                            });
-                            desktopResizeObserver.observe(this.$refs.desktopInput);
                         }
                     });
 

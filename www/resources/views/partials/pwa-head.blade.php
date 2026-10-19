@@ -26,9 +26,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PocketDev">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="icon" href="/favicon.ico?v=2" sizes="any">
+<link rel="icon" href="/favicon.ico?v=3" sizes="any">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=2">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=3">
 {{-- iOS launch screens (brutalism: lime + icon), generated per device size --}}
 <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/icons/splash/splash-1320x2868.png">
 <link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="/icons/splash/splash-1290x2796.png">

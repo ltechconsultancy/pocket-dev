@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PocketDev">
-  <!-- Brutalism, same family as Studio/Lijstje: lime block, heavy black frame, black glyph -->
-  <rect x="16" y="16" width="480" height="480" fill="#cafc03" stroke="#0a0a0a" stroke-width="32"/>
+  <!-- Brutalism, same family as Studio/Lijstje: lime block, black glyph (OS rounds the corners) -->
+  <rect width="512" height="512" fill="#cafc03"/>
   <!-- prompt chevron -->
   <path d="M124 150 L242 256 L124 362" fill="none" stroke="#0a0a0a" stroke-width="58" stroke-linecap="square" stroke-linejoin="miter"/>
   <!-- cursor -->

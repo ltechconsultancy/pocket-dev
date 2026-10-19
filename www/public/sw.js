@@ -20,7 +20,7 @@
  */
 'use strict';
 
-const VERSION = 'v3-splash';
+const VERSION = 'v4-icon-noframe';
 const SHELL_CACHE = 'pocketdev-shell-' + VERSION;
 const ASSET_CACHE = 'pocketdev-assets-' + VERSION;
 const OFFLINE_URL = '/offline.html';

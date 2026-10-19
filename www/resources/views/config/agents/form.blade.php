@@ -126,12 +126,7 @@
                     >
                         @foreach($providers as $p)
                             <option value="{{ $p }}">
-                                {{ match($p) {
-                                    'anthropic' => 'Anthropic',
-                                    'openai' => 'OpenAI',
-                                    'claude_code' => 'Claude Code',
-                                    default => ucfirst($p)
-                                } }}
+                                {{ \App\Enums\Provider::tryFrom($p)?->label() ?? ucfirst($p) }}
                             </option>
                         @endforeach
                     </select>
@@ -412,23 +407,25 @@
                     <p class="text-xs text-gray-400 mt-1">Controls reasoning depth for Codex models</p>
                 </div>
 
-                <!-- OpenCode Go: reasoning effort (variant), clamped per model -->
+                <!-- OpenCode Go: reasoning level = CLI variant; only the variants this model accepts -->
                 <div x-show="provider === 'opencode'" x-cloak>
-                    <label for="opencode_reasoning_effort" class="block text-sm font-medium mb-2">Reasoning Effort</label>
-                    @php $currentOpenCodeEffort = old('opencode_reasoning_effort', ($agent->reasoning_config['effort'] ?? null) ?? ($sourceAgent->reasoning_config['effort'] ?? 'default')); @endphp
+                    <label for="opencode_reasoning_effort" class="block text-sm font-medium mb-2">Reasoning</label>
                     <select
                         id="opencode_reasoning_effort"
                         name="opencode_reasoning_effort"
+                        x-model="opencodeEffort"
+                        x-bind:disabled="opencodeVariants.length === 0"
                         class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                        @foreach(['default' => 'Model default', 'none' => 'None', 'minimal' => 'Minimal', 'low' => 'Low', 'medium' => 'Medium', 'high' => 'High', 'xhigh' => 'Extra High', 'max' => 'Maximum'] as $value => $label)
-                            <option value="{{ $value }}" {{ $currentOpenCodeEffort === $value ? 'selected' : '' }}>{{ $label }}</option>
-                        @endforeach
+                        <option value="default">{{ \App\Services\Providers\OpenCodeProvider::VARIANT_LABELS['default'] }}</option>
+                        <template x-for="variant in opencodeVariants" :key="variant">
+                            <option :value="variant" x-text="opencodeVariantLabels[variant] || variant" :selected="variant === opencodeEffort"></option>
+                        </template>
                     </select>
-                    <p class="text-xs text-gray-400 mt-1">
-                        <span x-show="(opencodeEfforts[effectiveModel] || []).length" x-text="'Dit model ondersteunt: ' + (opencodeEfforts[effectiveModel] || []).join(', ') + '. Andere waarden vallen terug op de standaard.'"></span>
-                        <span x-show="!(opencodeEfforts[effectiveModel] || []).length">Dit model heeft geen instelbaar redeneerniveau; de standaard wordt gebruikt.</span>
-                    </p>
+                    <!-- disabled selects are not submitted: keep the value in the form -->
+                    <input type="hidden" name="opencode_reasoning_effort" value="default" x-bind:disabled="opencodeVariants.length > 0">
+                    <p class="text-xs text-gray-400 mt-1"
+                       x-text="opencodeVariants.length ? 'Alleen de niveaus die dit model ondersteunt.' : 'Dit model heeft geen instelbaar reasoning-niveau.'"></p>
                 </div>
 
                 <!-- Cursor Agent Reasoning Effort -->
@@ -914,6 +911,12 @@
             modelMode: 'select', // 'select' or 'manual'
             modelsPerProvider: @js($modelsPerProvider),
             opencodeEfforts: @js($opencodeEfforts ?? []),
+            opencodeVariantLabels: @js(\App\Services\Providers\OpenCodeProvider::VARIANT_LABELS),
+            opencodeEffort: @js(old('opencode_reasoning_effort', (($agent->provider ?? null) === 'opencode' ? ($agent->reasoning_config['effort'] ?? null) : null) ?? ((($sourceAgent->provider ?? null) === 'opencode') ? ($sourceAgent->reasoning_config['effort'] ?? null) : null) ?? 'default')),
+
+            get opencodeVariants() {
+                return this.opencodeEfforts[this.effectiveModel] || [];
+            },
             selectedTools: @js($formAllowedTools ?? []),
             allToolsSelected: @js($formAllowedTools === null),
             agentSystemPrompt: @js($formSystemPrompt),
@@ -982,6 +985,15 @@
             },
 
             async init() {
+                // OpenCode: a reasoning level must be valid for the chosen model, else model default
+                const clampOpenCodeEffort = () => {
+                    if (this.opencodeEffort !== 'default' && !this.opencodeVariants.includes(this.opencodeEffort)) {
+                        this.opencodeEffort = 'default';
+                    }
+                };
+                clampOpenCodeEffort();
+                this.$watch('effectiveModel', clampOpenCodeEffort);
+
                 const models = this.modelsPerProvider[this.provider] || {};
                 const modelIds = Object.keys(models);
 

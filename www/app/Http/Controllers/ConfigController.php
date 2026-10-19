@@ -481,7 +481,7 @@ class ConfigController extends Controller
                 'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
                 'cursor_agent_thinking' => 'nullable|in:0,1',
                 'cursor_agent_fast' => 'nullable|in:0,1',
-                'opencode_reasoning_effort' => 'nullable|string|in:default,none,minimal,low,medium,high,xhigh,max',
+                'opencode_reasoning_effort' => 'nullable|string|in:default,none,minimal,low,medium,high,xhigh,max,thinking',
                 'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'response_level' => 'nullable|integer|min:1|max:5',
                 'inherit_workspace_tools' => 'nullable|in:0,1',
@@ -617,7 +617,7 @@ class ConfigController extends Controller
                 'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
                 'cursor_agent_thinking' => 'nullable|in:0,1',
                 'cursor_agent_fast' => 'nullable|in:0,1',
-                'opencode_reasoning_effort' => 'nullable|string|in:default,none,minimal,low,medium,high,xhigh,max',
+                'opencode_reasoning_effort' => 'nullable|string|in:default,none,minimal,low,medium,high,xhigh,max,thinking',
                 'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'response_level' => 'nullable|integer|min:1|max:5',
                 'inherit_workspace_tools' => 'nullable|in:0,1',
@@ -800,7 +800,10 @@ class ConfigController extends Controller
                 ]
                 : null,
             'opencode' => isset($validated['opencode_reasoning_effort'])
-                ? ['effort' => $validated['opencode_reasoning_effort']]
+                // Only variants the CLI accepts for this model; anything else = model default
+                ? ['effort' => in_array($validated['opencode_reasoning_effort'], \App\Services\Providers\OpenCodeProvider::variantsFor((string) ($validated['model'] ?? '')), true)
+                    ? $validated['opencode_reasoning_effort']
+                    : 'default']
                 : null,
             default => null,
         };

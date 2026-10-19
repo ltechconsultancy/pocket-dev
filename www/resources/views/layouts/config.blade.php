@@ -321,19 +321,19 @@
         <div class="flex-1 overflow-y-auto p-4 md:p-6">
             <!-- Notifications -->
             @if(session('success'))
-                <div class="mb-4 p-4 bg-green-900 border-l-4 border-green-500 text-green-200 rounded">
+                <div class="pd-alert pd-alert-success mb-4 p-4 bg-green-900 border-l-4 border-green-500 text-green-200 rounded">
                     {{ session('success') }}
                 </div>
             @endif
 
             @if(session('error'))
-                <div class="mb-4 p-4 bg-red-900 border-l-4 border-red-500 text-red-200 rounded">
+                <div class="pd-alert pd-alert-error mb-4 p-4 bg-red-900 border-l-4 border-red-500 text-red-200 rounded">
                     {{ session('error') }}
                 </div>
             @endif
 
             @if($errors->any())
-                <div class="mb-4 p-4 bg-red-900 border-l-4 border-red-500 text-red-200 rounded">
+                <div class="pd-alert pd-alert-error mb-4 p-4 bg-red-900 border-l-4 border-red-500 text-red-200 rounded">
                     <ul class="list-disc list-inside">
                         @foreach($errors->all() as $error)
                             <li>{{ $error }}</li>

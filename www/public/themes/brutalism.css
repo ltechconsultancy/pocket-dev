@@ -450,3 +450,22 @@ html[data-theme^="brutal"] .sa-tool .sa-caption { color: var(--b-muted); }
 html[data-theme^="brutal"] .sa-tool pre { color: var(--b-ink); }
 html[data-theme^="brutal"] .sa-tool .sa-result-error { color: var(--b-red); }
 html[data-theme^="brutal"] .sa-newest { border: var(--b-bw) solid var(--b-line); border-radius: 0; background: var(--b-accent); color: var(--b-accent-ink); box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow); }
+
+/* ---------------------------------------------------------------- code blocks (highlight.js) */
+/* app.css ships Atom One Dark; brutal themes use the paper surface of the <pre> instead */
+html[data-theme^="brutal"] :is(.markdown-content, .prose-preview) pre code,
+html[data-theme^="brutal"] :is(.markdown-content, .prose-preview) pre code.hljs {
+    background: transparent;
+    color: var(--b-ink);
+    padding: 0;
+    border: 0;
+}
+/* Light: readable ink-on-paper palette (GitHub-light like, slightly darker) */
+html[data-theme="brutal-light"] .hljs :is(.hljs-comment, .hljs-quote) { color: #57606a; font-style: italic; }
+html[data-theme="brutal-light"] .hljs :is(.hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-formula) { color: #b3261e; font-weight: 600; }
+html[data-theme="brutal-light"] .hljs :is(.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta .hljs-string) { color: #0a5c2b; }
+html[data-theme="brutal-light"] .hljs :is(.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable, .hljs-type, .hljs-attr, .hljs-selector-attr, .hljs-selector-pseudo) { color: #0b4fa8; }
+html[data-theme="brutal-light"] .hljs :is(.hljs-title, .hljs-section, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-built_in, .hljs-title.class_, .hljs-title.function_) { color: #6639ba; }
+html[data-theme="brutal-light"] .hljs :is(.hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta, .hljs-params) { color: #953800; }
+html[data-theme="brutal-light"] .hljs .hljs-deletion { color: #b3261e; background: #ffebe9; }
+html[data-theme="brutal-light"] .hljs .hljs-addition { background: #dafbe1; }

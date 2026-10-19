@@ -330,6 +330,15 @@ class ConfigController extends Controller
                 return $dynamic;
             }
         }
+        if ($provider === 'opencode') {
+            return \App\Services\Providers\OpenCodeProvider::discoverModels();
+        }
+        if ($provider === 'openai_compatible') {
+            $dynamic = \App\Services\Providers\OpenAICompatibleProvider::discoverModels();
+            if (!empty($dynamic)) {
+                return $dynamic;
+            }
+        }
         return config("ai.models.{$provider}", []);
     }
 
@@ -384,6 +393,9 @@ class ConfigController extends Controller
                 ->toArray(),
             'maxContextPerProvider' => collect(Agent::getProviders())
                 ->mapWithKeys(fn ($p) => [$p => $this->getMaxContextPerProvider($p)])
+                ->toArray(),
+            'opencodeEfforts' => collect(\App\Services\Providers\OpenCodeProvider::discoverModels())
+                ->mapWithKeys(fn ($m) => [$m['model_id'] => $m['efforts']])
                 ->toArray(),
             'workspaces' => Workspace::orderBy('name')->get(),
             'selectedWorkspaceId' => $selectedWorkspaceId,
@@ -469,6 +481,7 @@ class ConfigController extends Controller
                 'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
                 'cursor_agent_thinking' => 'nullable|in:0,1',
                 'cursor_agent_fast' => 'nullable|in:0,1',
+                'opencode_reasoning_effort' => 'nullable|string|in:default,none,minimal,low,medium,high,xhigh,max',
                 'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'response_level' => 'nullable|integer|min:1|max:5',
                 'inherit_workspace_tools' => 'nullable|in:0,1',
@@ -578,6 +591,9 @@ class ConfigController extends Controller
             'maxContextPerProvider' => collect(Agent::getProviders())
                 ->mapWithKeys(fn ($p) => [$p => $this->getMaxContextPerProvider($p)])
                 ->toArray(),
+            'opencodeEfforts' => collect(\App\Services\Providers\OpenCodeProvider::discoverModels())
+                ->mapWithKeys(fn ($m) => [$m['model_id'] => $m['efforts']])
+                ->toArray(),
             'exposedAgents' => $exposedAgents,
         ]);
     }
@@ -601,6 +617,7 @@ class ConfigController extends Controller
                 'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
                 'cursor_agent_thinking' => 'nullable|in:0,1',
                 'cursor_agent_fast' => 'nullable|in:0,1',
+                'opencode_reasoning_effort' => 'nullable|string|in:default,none,minimal,low,medium,high,xhigh,max',
                 'openai_compatible_reasoning_effort' => 'nullable|string|in:none,low,medium,high',
                 'response_level' => 'nullable|integer|min:1|max:5',
                 'inherit_workspace_tools' => 'nullable|in:0,1',
@@ -781,6 +798,9 @@ class ConfigController extends Controller
                     'thinking' => (bool) ($validated['cursor_agent_thinking'] ?? true),
                     'fast' => (bool) ($validated['cursor_agent_fast'] ?? false),
                 ]
+                : null,
+            'opencode' => isset($validated['opencode_reasoning_effort'])
+                ? ['effort' => $validated['opencode_reasoning_effort']]
                 : null,
             default => null,
         };

@@ -238,6 +238,7 @@ class Agent extends Model
             Provider::ClaudeCode->value => $config['thinking_tokens'] ?? 0,
             Provider::Codex->value => $config['effort'] ?? 'minimal',
             Provider::CursorAgent->value => $config['effort'] ?? 'high',
+            Provider::OpenCode->value => $config['effort'] ?? 'default',
             default => null,
         };
     }
@@ -271,6 +272,10 @@ class Agent extends Model
             ),
             Provider::CursorAgent->value => array_merge(
                 ['type' => 'cursor_agent', 'effort' => 'high', 'thinking' => true, 'fast' => false],
+                $config
+            ),
+            Provider::OpenCode->value => array_merge(
+                ['type' => 'opencode', 'effort' => 'default'],
                 $config
             ),
             default => ['type' => 'none'],

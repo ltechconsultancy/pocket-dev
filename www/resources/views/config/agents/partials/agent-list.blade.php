@@ -15,6 +15,7 @@
         'claude_code' => 'bg-purple-500',
         'codex' => 'bg-teal-500',
         'openai_compatible' => 'bg-blue-500',
+        'opencode' => 'bg-rose-500',
     ];
 
     // Build a flat model_id => display_name lookup from config
@@ -115,6 +116,7 @@
                         @else
                             <span class="font-mono bg-gray-700 px-1.5 py-0.5 rounded text-gray-300 truncate max-w-[140px]">{{ $agent->model }}</span>
                         @endif
+                        @if(str_contains(strtolower((string) $agent->model), 'contributor'))<span class="pd-contributor-badge rounded" title="Contributor-model: de aanbieder traint op alles wat deze agent verstuurt en ontvangt. Niet voor vertrouwelijk werk."><i class="fa-solid fa-triangle-exclamation"></i> TRAINT OP JE DATA</span>@endif
                         <span class="text-gray-500">{{ $agent->allowed_tools === null ? 'All tools' : count($agent->allowed_tools) . ' tools' }}</span>
                         @php $reasoning = $agent->getReasoningValue(); @endphp
                         @if($reasoning && $reasoning !== 'none' && $reasoning !== 0)
@@ -168,6 +170,7 @@
                                 @else
                                     <span class="font-mono text-xs bg-gray-700 px-2 py-0.5 rounded text-gray-300">{{ $agent->model }}</span>
                                 @endif
+                                @if(str_contains(strtolower((string) $agent->model), 'contributor'))<span class="pd-contributor-badge rounded" title="Contributor-model: de aanbieder traint op alles wat deze agent verstuurt en ontvangt. Niet voor vertrouwelijk werk."><i class="fa-solid fa-triangle-exclamation"></i> TRAINT OP JE DATA</span>@endif
                                 @if($agent->is_default)
                                     <span class="px-2 py-0.5 text-xs font-medium bg-blue-600 text-white rounded">Default</span>
                                 @endif

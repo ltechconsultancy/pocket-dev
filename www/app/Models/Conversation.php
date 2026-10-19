@@ -404,6 +404,7 @@ class Conversation extends Model
             'claude_code' => array_merge(['thinking_tokens' => 0], $config),
             'codex' => array_merge(['effort' => 'minimal'], $config),
             'cursor_agent' => array_merge(['effort' => 'high', 'thinking' => true, 'fast' => false], $config),
+            'opencode' => array_merge(['effort' => 'default'], $config),
             default => $config,
         };
     }

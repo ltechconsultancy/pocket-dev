@@ -20,6 +20,7 @@ enum Provider: string
     case ClaudeCode = 'claude_code';
     case Codex = 'codex';
     case CursorAgent = 'cursor_agent';
+    case OpenCode = 'opencode';
 
     // API providers - partially broken (tool formatting not optimized)
     case Anthropic = 'anthropic';
@@ -37,6 +38,7 @@ enum Provider: string
             self::ClaudeCode => 'Claude Code',
             self::Codex => 'Codex',
             self::CursorAgent => 'Cursor Agent',
+            self::OpenCode => 'OpenCode Go',
             self::OpenAICompatible => 'OpenAI Compatible',
         };
     }
@@ -47,7 +49,7 @@ enum Provider: string
     public function isCliProvider(): bool
     {
         return match ($this) {
-            self::ClaudeCode, self::Codex, self::CursorAgent => true,
+            self::ClaudeCode, self::Codex, self::CursorAgent, self::OpenCode => true,
             default => false,
         };
     }

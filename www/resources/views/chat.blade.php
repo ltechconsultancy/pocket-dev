@@ -1326,6 +1326,7 @@
                                   'bg-orange-500': currentAgent?.provider === 'anthropic',
                                   'bg-green-500': currentAgent?.provider === 'openai',
                                   'bg-purple-500': currentAgent?.provider === 'claude_code',
+                                  'bg-rose-500': currentAgent?.provider === 'opencode',
                                   'bg-gray-500': !currentAgent
                               }"></span>
                         <span x-text="currentAgent?.name || 'Select Agent'" class="underline decoration-gray-600 hover:decoration-gray-400"></span>
@@ -2935,7 +2936,7 @@
 
                 get availableProviderKeys() {
                     const providers = new Set(this.availableAgents.map(a => a.provider));
-                    return ['anthropic', 'openai', 'claude_code', 'codex', 'cursor_agent', 'openai_compatible'].filter(p => providers.has(p));
+                    return ['anthropic', 'openai', 'claude_code', 'codex', 'cursor_agent', 'opencode', 'openai_compatible'].filter(p => providers.has(p));
                 },
 
                 agentsForProvider(providerKey) {
@@ -2949,6 +2950,7 @@
                         'claude_code': 'Claude Code',
                         'codex': 'Codex',
                         'cursor_agent': 'Cursor Agent',
+                        'opencode': 'OpenCode Go',
                         'openai_compatible': 'OpenAI Compatible'
                     };
                     return names[providerKey] || providerKey;
@@ -2970,6 +2972,7 @@
                         'claude_code': 'bg-purple-500',
                         'codex': 'bg-blue-500',
                         'cursor_agent': 'bg-indigo-500',
+                        'opencode': 'bg-rose-500',
                         'openai_compatible': 'bg-teal-500'
                     };
                     return colors[providerKey] || 'bg-gray-500';

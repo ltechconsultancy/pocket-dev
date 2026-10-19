@@ -59,7 +59,7 @@
                                         title="Volledige geschiedenis bekijken">
                                     <i class="fa-solid fa-eye"></i>
                                 </button>
-                                <button type="button" x-show="item.status === 'running' || item.status === 'pending'"
+                                <button type="button" x-show="!item.native && (item.status === 'running' || item.status === 'pending')"
                                         @click="cancelSubagent(item)"
                                         class="sa-iconbtn sa-stop rounded bg-gray-700 hover:bg-gray-600 cursor-pointer"
                                         title="Stoppen">

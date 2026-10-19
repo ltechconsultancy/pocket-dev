@@ -30,27 +30,39 @@ class SubAgentMonitor
 
     public function forSession(Session $session): array
     {
-        $parentUuids = $session->screens()
+        $parents = $session->screens()
             ->where('type', 'chat')
-            ->with('conversation:id,uuid')
+            ->with('conversation:id,uuid,status,provider_type,provider_session_id')
             ->get()
-            ->pluck('conversation.uuid')
+            ->pluck('conversation')
             ->filter()
-            ->values()
-            ->all();
+            ->values();
+        $parentUuids = $parents->pluck('uuid')->all();
 
         $tasks = $this->collectTasks($parentUuids);
 
         $running = $tasks->filter(fn(SubAgentTask $t) => in_array($this->status($t), ['running', 'pending'], true));
         $finished = $tasks->reject(fn(SubAgentTask $t) => in_array($this->status($t), ['running', 'pending'], true))
             ->filter(fn(SubAgentTask $t) => $this->finishedAt($t)?->gt(now()->subMinutes(self::FINISHED_WINDOW_MINUTES)))
-            ->sortByDesc(fn(SubAgentTask $t) => $this->finishedAt($t))
-            ->take(self::MAX_FINISHED);
+            ->map(fn(SubAgentTask $t) => ['at' => $this->finishedAt($t)?->getTimestamp() ?? 0, 'item' => $this->present($t)]);
+
+        // Claude Code's own sub-agents (built-in Agent tool) of these chats
+        $native = collect(app(NativeSubAgentMonitor::class)->forConversations($parents));
+        $nativeRunning = $native->where('status', 'running');
+        $nativeFinished = $native->where('status', '!=', 'running')
+            ->map(fn(array $i) => ['at' => strtotime((string) $i['finished_at']) ?: 0, 'item' => $i]);
+
+        $finishedItems = $finished->concat($nativeFinished)
+            ->sortByDesc('at')
+            ->take(self::MAX_FINISHED)
+            ->pluck('item');
 
         return [
-            'running' => $running->count(),
-            'items' => $running->sortBy('created_at')->concat($finished)
+            'running' => $running->count() + $nativeRunning->count(),
+            'items' => $running->sortBy('created_at')
                 ->map(fn(SubAgentTask $t) => $this->present($t))
+                ->concat($nativeRunning->sortBy('started_at')->values())
+                ->concat($finishedItems)
                 ->values()
                 ->all(),
         ];
@@ -247,6 +259,15 @@ class SubAgentMonitor
             if ($sessionId) {
                 $sessions[$sessionId] = ($sessions[$sessionId] ?? 0) + 1;
                 $conversations[$chatUuid] = ($conversations[$chatUuid] ?? 0) + 1;
+            }
+        }
+
+        // Claude Code's own (native) sub-agents count for their chat as well
+        foreach (app(NativeSubAgentMonitor::class)->runningByConversation() as $parentUuid => $count) {
+            [$chatUuid, $sessionId] = $this->topChatOf((string) $parentUuid);
+            if ($sessionId) {
+                $sessions[$sessionId] = ($sessions[$sessionId] ?? 0) + $count;
+                $conversations[$chatUuid] = ($conversations[$chatUuid] ?? 0) + $count;
             }
         }
 

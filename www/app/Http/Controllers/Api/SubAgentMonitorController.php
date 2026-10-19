@@ -54,4 +54,15 @@ class SubAgentMonitorController extends Controller
             'result' => json_decode((string) ($result->toArray()['output'] ?? ''), true),
         ], $result->isError() ? 422 : 200);
     }
+
+    /**
+     * History of one of Claude Code's own sub-agents (built-in Agent tool), for the viewer.
+     */
+    public function nativeEvents(\Illuminate\Http\Request $request, string $conversation, string $agentId, \App\Services\NativeSubAgentMonitor $monitor): JsonResponse
+    {
+        $chat = \App\Models\Conversation::where('uuid', $conversation)->firstOrFail();
+        abort_unless(preg_match('/^[a-z0-9]{4,40}$/', $agentId) === 1, 404);
+
+        return response()->json($monitor->events($chat, $agentId, max(0, (int) $request->query('from', 0))));
+    }
 }

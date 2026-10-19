@@ -28,7 +28,7 @@
                     <div class="text-sm font-semibold text-gray-100 truncate" x-text="subagentViewer.title"></div>
                     <div class="text-xs text-gray-400 truncate" x-text="subagentViewerMeta()"></div>
                 </div>
-                <button type="button" x-show="subagentViewer.status === 'running' || subagentViewer.status === 'pending'"
+                <button type="button" x-show="!subagentViewer.native && (subagentViewer.status === 'running' || subagentViewer.status === 'pending')"
                         @click="cancelSubagent({ id: subagentViewer.taskId, title: subagentViewer.title })"
                         class="sa-stop-solid rounded cursor-pointer shrink-0"
                         title="Stoppen">

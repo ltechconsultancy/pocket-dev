@@ -54,7 +54,9 @@ class FilePreviewController extends Controller
         // Detect image files by extension - render visually instead of as binary
         $imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'ico', 'avif', 'tiff', 'tif', 'svg'];
         $videoExtensions = ['mp4', 'webm', 'mov', 'ogg', 'm4v'];
-        if (in_array($extension, $imageExtensions, true) || in_array($extension, $videoExtensions, true)) {
+        // PDFs are rendered in the browser (PDF.js) from the media endpoint, so no size limit here
+        $isPdf = $extension === 'pdf';
+        if ($isPdf || in_array($extension, $imageExtensions, true) || in_array($extension, $videoExtensions, true)) {
             return response()->json([
                 'exists' => true,
                 'readable' => true,
@@ -65,6 +67,7 @@ class FilePreviewController extends Controller
                 'path' => $path,
                 'is_image' => in_array($extension, $imageExtensions, true),
                 'is_video' => in_array($extension, $videoExtensions, true),
+                'is_pdf' => $isPdf,
             ]);
         }
 

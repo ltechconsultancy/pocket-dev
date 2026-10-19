@@ -1,0 +1,53 @@
+/* Sub-agent UI (pill, sheet, viewer, badges) - Classic colors.
+ * Kept out of inline styles so public/themes/brutalism.css can restyle them. */
+
+.sa-pill { background: #1e1b4b; border: 1px solid #4338ca; color: #e0e7ff; padding: 6px 12px; }
+.sa-pill .sa-accent { color: #a5b4fc; }
+.sa-pill .sa-chevron { color: #818cf8; font-size: 11px; }
+.sa-pill.sa-done { background: #022c22; border-color: #065f46; color: #d1fae5; }
+.sa-pill.sa-done .sa-accent { color: #6ee7b7; }
+
+.sa-badge { padding: 1px 6px; font-size: 10px; background: #312e81; color: #c7d2fe; border: 1px solid #4338ca; }
+
+.sa-sheet { border-color: #4b5563; }
+
+.sa-status { width: 34px; height: 34px; border-radius: 10px; }
+.sa-status.sa-sm { width: 30px; height: 30px; border-radius: 9px; }
+.sa-status-running, .sa-status-pending { background: #4338ca; color: #fff; }
+.sa-status-completed { background: #065f46; color: #6ee7b7; }
+.sa-status-failed { background: #7f1d1d; color: #fca5a5; }
+.sa-status-cancelled { background: #374151; color: #d1d5db; }
+
+.sa-iconbtn { padding: 6px 9px; font-size: 12px; }
+.sa-stop { color: #fca5a5; }
+.sa-stop-solid { padding: 6px 10px; font-size: 12px; background: #7f1d1d; color: #fecaca; }
+
+.sa-log { margin-left: 46px; background: #0b1220; padding: 6px 8px; font-size: 11.5px; line-height: 1.7; }
+.sa-step { color: #6b7280; }
+.sa-step.sa-active { color: #93c5fd; }
+.sa-step i { width: 14px; color: #6b7280; }
+.sa-step.sa-done-step i { color: #10b981; }
+.sa-error { margin-left: 46px; color: #fca5a5; }
+
+/* Viewer */
+.sa-viewer-panel-desktop { max-width: 860px; height: 88vh; border: 1px solid #4b5563; border-radius: 12px; }
+.sa-prompt { background: #312e81; padding: 10px 12px; }
+.sa-prompt .sa-label { font-size: 11px; color: #a5b4fc; }
+.sa-thinking { background: rgba(88, 28, 135, .25); border: 1px solid #6b21a8; padding: 8px 12px; }
+.sa-thinking .sa-head { color: #d8b4fe; }
+.sa-thinking .sa-body { color: #e9d5ff; font-size: 13px; }
+.sa-tool { background: #0b1220; border: 1px solid #1e3a8a; font-size: 12px; }
+.sa-tool.sa-tool-error { border-color: #7f1d1d; }
+.sa-tool .sa-head { padding: 7px 10px; }
+.sa-tool .sa-name { color: #93c5fd; }
+.sa-tool .sa-ok { color: #10b981; }
+.sa-tool .sa-fail { color: #fca5a5; }
+.sa-tool .sa-section { border-top: 1px solid #1f2937; }
+.sa-tool .sa-caption { padding: 6px 10px 0; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; }
+.sa-tool pre { margin: 0; padding: 4px 10px 8px; overflow: auto; color: #d1d5db; }
+.sa-tool .sa-result-error { color: #fca5a5; }
+.sa-end-error { color: #fca5a5; }
+.sa-newest { right: 16px; bottom: 16px; padding: 8px 12px; font-size: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, .5); }
+
+/* Tab bar: badge sits on the bottom-right corner of the tab (title keeps its room) */
+.sa-tab-badge { right: -6px; bottom: -6px; z-index: 10; padding: 0 5px; font-size: 9px; line-height: 15px; }

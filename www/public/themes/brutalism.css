@@ -64,13 +64,13 @@ html[data-theme^="brutal"] {
 
 html[data-theme="brutal-dark"] {
     --b-bg: #0a0a0a;
-    --b-paper: #121212;
+    --b-paper: #141414;
     --b-ink: #fafafa;
-    --b-line: #fafafa;
+    --b-line: #3f3f3f;     /* softer than white: white frames were too heavy in the dark */
     --b-muted: #a6a6a6;
     --b-soft: #1c1c1c;
     --b-soft-2: #2a2a2a;
-    --b-shadow: #fafafa;
+    --b-shadow: #333333;
     color-scheme: dark;
 
     --color-gray-950: #000000;
@@ -110,7 +110,6 @@ html[data-theme="brutal-light"] {
     --color-gray-100: var(--b-ink);
     --color-gray-50: var(--b-ink);
     --color-white: var(--b-ink);           /* text-white = main text on light panels */
-    --color-black: #ffffff;
 
     /* Dark tints (bg-blue-900/30 etc.) would muddy a light page: lighten them */
     --color-blue-900: #cfe0ff;
@@ -123,6 +122,35 @@ html[data-theme="brutal-light"] {
     --color-green-900: #c8f7d8;
     --color-emerald-900: #c8f7d8;
     --color-rose-900: #ffd3dc;
+    /* Pale text tints (made for dark panels) -> dark, readable on paper */
+    --color-blue-100: var(--b-ink);
+    --color-blue-200: #0a2a66;
+    --color-purple-100: var(--b-ink);
+    --color-purple-200: #3b0f6b;
+    --color-amber-100: var(--b-ink);
+    --color-amber-200: #5c3a00;
+    --color-amber-300: #7a4d00;
+    --color-yellow-100: var(--b-ink);
+    --color-yellow-200: #5c4800;
+    --color-yellow-300: #6b5400;
+    --color-red-100: var(--b-ink);
+    --color-red-200: #6b0000;
+    --color-green-200: #075a26;
+    --color-green-300: #086b2d;
+    --color-emerald-200: #075a26;
+    --color-emerald-300: #086b2d;
+    --color-cyan-300: #00606f;
+    --color-cyan-400: #006b7d;
+    --color-rose-100: var(--b-ink);
+    --color-rose-200: #7a0016;
+    --color-rose-300: #8f001b;
+    --color-rose-400: #a3001f;
+    --color-orange-300: #8a3600;
+    --color-orange-400: #9a3d00;
+    --color-pink-300: #8f004d;
+    --color-pink-400: #a3005a;
+    --color-violet-400: #5b21b6;
+    --color-indigo-500: #3730a3;
     --color-blue-300: #0047b3;
     --color-blue-400: #0057d9;
     --color-purple-300: #6b21a8;
@@ -300,3 +328,125 @@ html[data-theme^="brutal"] .category-button.active {
     border-left-color: var(--b-ink);
     font-weight: 700;
 }
+
+/* ---------------------------------------------------------------- light: grays used both as text and bg */
+
+/* text-gray-600 = muted timestamps on dark panels; on paper it needs to be darker */
+html[data-theme="brutal-light"] .text-gray-600 { color: #7a7a7a; }
+html[data-theme="brutal-light"] .text-gray-700 { color: #6b6b6b; }
+html[data-theme="brutal-light"] :is(.bg-gray-500, .hover\:bg-gray-500:hover) { background-color: var(--b-soft-2); }
+
+/* ---------------------------------------------------------------- chat blocks: paper + ink frame */
+/* Tool / thinking / error / compaction / system blocks: tinted on dark, paper with a
+   colored header in brutalism. Outer = .border.rounded-lg with a */900/ or gray tint;
+   header = the clickable bar inside. */
+
+html[data-theme^="brutal"] .border.rounded-lg:is([class*="bg-blue-900/"], [class*="bg-purple-900/"], [class*="bg-amber-900/"], [class*="bg-red-900/"], [class*="bg-gray-800/"], [class*="bg-gray-700/"]),
+html[data-theme^="brutal"] .border.rounded-lg[class*="border-blue-500/"],
+html[data-theme^="brutal"] .border.rounded-lg[class*="border-purple-500/"],
+html[data-theme^="brutal"] .border.rounded-lg[class*="border-amber-500/"],
+html[data-theme^="brutal"] .border.rounded-lg[class*="border-red-500/"] {
+    background-color: var(--b-paper);
+    border-color: var(--b-line);
+}
+html[data-theme^="brutal"] .cursor-pointer[class*="bg-blue-900/"]   { background-color: var(--b-tint-blue); }
+html[data-theme^="brutal"] .cursor-pointer[class*="bg-purple-900/"] { background-color: var(--b-tint-purple); }
+html[data-theme^="brutal"] .cursor-pointer[class*="bg-amber-900/"]  { background-color: var(--b-tint-amber); }
+html[data-theme^="brutal"] .cursor-pointer[class*="bg-red-900/"]    { background-color: var(--b-tint-red); }
+html[data-theme^="brutal"] .cursor-pointer:is([class*="bg-blue-900/"], [class*="bg-purple-900/"], [class*="bg-amber-900/"], [class*="bg-red-900/"]) {
+    border-color: var(--b-line);
+}
+html[data-theme^="brutal"] :is([class*="border-blue-500/"], [class*="border-purple-500/"], [class*="border-amber-500/"], [class*="border-red-500/"], [class*="border-gray-600/"]) {
+    border-color: var(--b-line);
+}
+/* Block contents (code, output): ink on paper */
+html[data-theme^="brutal"] .border.rounded-lg:is([class*="bg-blue-900/"], [class*="bg-purple-900/"], [class*="bg-amber-900/"], [class*="bg-red-900/"]) :is(pre, code) {
+    color: var(--b-ink);
+}
+
+html[data-theme="brutal-light"] {
+    --b-tint-blue: #dbe7ff;
+    --b-tint-purple: #efe3ff;
+    --b-tint-amber: #fff1bf;
+    --b-tint-red: #ffdede;
+}
+html[data-theme="brutal-dark"] {
+    --b-tint-blue: #0e1d3a;
+    --b-tint-purple: #241338;
+    --b-tint-amber: #2e2405;
+    --b-tint-red: #330c0c;
+}
+
+/* ---------------------------------------------------------------- sub-agent UI (public/themes/subagents.css) */
+
+html[data-theme^="brutal"] .sa-pill {
+    background: #0a0a0a;
+    color: #fafafa;
+    border: var(--b-bw) solid var(--b-line);
+    border-radius: 0;
+    box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-accent);
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    font-size: 12px;
+}
+html[data-theme^="brutal"] .sa-pill :is(.sa-accent, .sa-chevron) { color: var(--b-accent); }
+html[data-theme^="brutal"] .sa-pill.sa-done { background: var(--b-green); color: var(--b-accent-ink); box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow); }
+html[data-theme^="brutal"] .sa-pill.sa-done .sa-accent { color: var(--b-accent-ink); }
+
+html[data-theme^="brutal"] .sa-badge {
+    background: var(--b-accent);
+    color: var(--b-accent-ink);
+    border: 1px solid var(--b-accent-ink);
+    border-radius: 0;
+    font-family: var(--font-mono);
+}
+/* On the lime active session the badge stays readable */
+html[data-theme^="brutal"] .group.bg-gray-700 .sa-badge { background: var(--b-accent-ink); color: var(--b-accent); border-color: var(--b-accent-ink); }
+
+html[data-theme^="brutal"] .sa-sheet {
+    border: var(--b-bw) solid var(--b-line) !important;
+    border-radius: 0 !important;
+    box-shadow: var(--b-sh-lg) var(--b-sh-lg) 0 var(--b-shadow);
+}
+html[data-theme^="brutal"] .sa-viewer-panel-desktop {
+    border: var(--b-bw) solid var(--b-line);
+    border-radius: 0;
+    box-shadow: var(--b-sh-lg) var(--b-sh-lg) 0 var(--b-shadow);
+}
+
+html[data-theme^="brutal"] .sa-status { border-radius: 0; border: var(--b-bw) solid var(--b-line); }
+html[data-theme^="brutal"] :is(.sa-status-running, .sa-status-pending) { background: #0a0a0a; color: var(--b-accent); }
+html[data-theme^="brutal"] .sa-status-completed { background: var(--b-green); color: var(--b-accent-ink); }
+html[data-theme^="brutal"] .sa-status-failed { background: var(--b-red); color: #fff; }
+html[data-theme^="brutal"] .sa-status-cancelled { background: var(--b-soft-2); color: var(--b-ink); }
+
+html[data-theme^="brutal"] .sa-iconbtn { border: var(--b-bw) solid var(--b-line); border-radius: 0; background: var(--b-paper); color: var(--b-ink); }
+html[data-theme^="brutal"] .sa-iconbtn:hover { background: var(--b-accent); color: var(--b-accent-ink); }
+html[data-theme^="brutal"] .sa-stop { color: var(--b-red); }
+html[data-theme^="brutal"] .sa-stop-solid { background: var(--b-red); color: #fff; border: var(--b-bw) solid var(--b-line); border-radius: 0; box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow); font-weight: 700; }
+
+html[data-theme^="brutal"] .sa-log { background: var(--b-soft); border: var(--b-bw) solid var(--b-line); border-radius: 0; }
+html[data-theme^="brutal"] .sa-step { color: var(--b-muted); }
+html[data-theme^="brutal"] .sa-step.sa-active { color: var(--b-ink); font-weight: 600; }
+html[data-theme^="brutal"] .sa-step.sa-done-step i { color: var(--b-green); }
+html[data-theme="brutal-light"] .sa-step.sa-done-step i { color: #0a7a35; }
+html[data-theme^="brutal"] :is(.sa-error, .sa-end-error) { color: var(--b-red); }
+
+html[data-theme^="brutal"] .sa-prompt { background: var(--b-accent); color: var(--b-accent-ink); border: var(--b-bw) solid var(--b-line); border-radius: 0; box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow); }
+html[data-theme^="brutal"] .sa-prompt :is(.sa-label, .text-gray-100) { color: var(--b-accent-ink) !important; }
+html[data-theme^="brutal"] .sa-thinking { background: var(--b-tint-purple); border: var(--b-bw) solid var(--b-line); border-radius: 0; }
+html[data-theme^="brutal"] .sa-thinking .sa-head { color: var(--b-ink); }
+html[data-theme^="brutal"] .sa-thinking .sa-body { color: var(--b-ink); }
+html[data-theme^="brutal"] .sa-tool { background: var(--b-paper); border: var(--b-bw) solid var(--b-line); border-radius: 0; }
+html[data-theme^="brutal"] .sa-tool.sa-tool-error { border-color: var(--b-red); }
+html[data-theme^="brutal"] .sa-tool .sa-head { background: var(--b-tint-blue); }
+html[data-theme^="brutal"] .sa-tool.sa-tool-error .sa-head { background: var(--b-tint-red); }
+html[data-theme^="brutal"] .sa-tool .sa-name { color: var(--b-ink); }
+html[data-theme^="brutal"] .sa-tool .sa-ok { color: #0a7a35; }
+html[data-theme="brutal-dark"] .sa-tool .sa-ok { color: var(--b-green); }
+html[data-theme^="brutal"] .sa-tool .sa-fail { color: var(--b-red); }
+html[data-theme^="brutal"] .sa-tool .sa-section { border-top: var(--b-bw) solid var(--b-line); }
+html[data-theme^="brutal"] .sa-tool .sa-caption { color: var(--b-muted); }
+html[data-theme^="brutal"] .sa-tool pre { color: var(--b-ink); }
+html[data-theme^="brutal"] .sa-tool .sa-result-error { color: var(--b-red); }
+html[data-theme^="brutal"] .sa-newest { border: var(--b-bw) solid var(--b-line); border-radius: 0; background: var(--b-accent); color: var(--b-accent-ink); box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow); }

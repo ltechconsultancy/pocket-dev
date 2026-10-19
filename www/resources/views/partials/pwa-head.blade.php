@@ -2,7 +2,8 @@
      Manifest + icons live in public/, the service worker is public/sw.js. --}}
 {{-- Theme (Classic / Brutalism light / Brutalism dark), per device. Applied before the
      page paints so there is no flash; public/themes/brutalism.css only acts on data-theme. --}}
-<link rel="stylesheet" href="/themes/brutalism.css?v=3">
+<link rel="stylesheet" href="/themes/subagents.css?v=2">
+<link rel="stylesheet" href="/themes/brutalism.css?v=6">
 <script>
     (function () {
         var theme = null;

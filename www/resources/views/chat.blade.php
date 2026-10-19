@@ -1399,6 +1399,12 @@
                                 <span class="flex-1">Workspace</span>
                                 <span class="text-xs text-gray-400 truncate max-w-[80px]" x-text="currentWorkspace?.name || 'Default'"></span>
                             </button>
+                            {{-- Settings --}}
+                            <a href="{{ route('config.index') }}"
+                               class="flex items-center gap-2 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600">
+                                <i class="fa-solid fa-cog w-4 text-center"></i>
+                                Instellingen
+                            </a>
                             {{-- Session Section Header --}}
                             <div class="px-4 py-1.5 text-xs text-gray-500 uppercase tracking-wide border-t border-gray-600">Session</div>
                             {{-- Archive/Restore Session --}}

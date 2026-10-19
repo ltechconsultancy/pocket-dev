@@ -98,6 +98,13 @@
                 <span class="flex-1">Workspace</span>
                 <span class="text-xs text-gray-400 truncate max-w-[80px]" x-text="currentWorkspace?.name || 'Default'"></span>
             </button>
+            {{-- Settings --}}
+            <a href="{{ route('config.index') }}"
+               role="menuitem"
+               class="flex items-center gap-2 px-4 py-2 text-sm text-gray-200 hover:bg-gray-600">
+                <i class="fa-solid fa-cog w-4 text-center"></i>
+                Instellingen
+            </a>
             {{-- Session Section Header --}}
             <div class="px-4 py-1.5 text-xs text-gray-500 uppercase tracking-wide border-t border-gray-600">Session</div>
             {{-- Archive/Restore Session --}}
@@ -262,8 +269,7 @@
                     <span class="text-xs text-gray-300 truncate flex-1" x-text="session.name || 'New Session'"></span>
                     {{-- Screen count badge --}}
                     <span x-show="(runningSubagents.sessions[session.id] || 0) > 0" x-cloak
-                          class="inline-flex items-center gap-1 rounded-full shrink-0"
-                          style="padding: 1px 6px; font-size: 10px; background: #312e81; color: #c7d2fe; border: 1px solid #4338ca;"
+                          class="sa-badge inline-flex items-center gap-1 rounded-full shrink-0"
                           :title="(runningSubagents.sessions[session.id] || 0) + ' sub-agent(s) actief'">
                         <i class="fa-solid fa-robot animate-pulse"></i><span x-text="runningSubagents.sessions[session.id]"></span>
                     </span>

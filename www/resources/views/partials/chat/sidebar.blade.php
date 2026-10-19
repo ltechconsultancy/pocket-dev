@@ -66,8 +66,7 @@
                     <span class="text-xs text-gray-300 truncate flex-1" x-text="session.name || 'New Session'"></span>
                     {{-- Screen count badge --}}
                     <span x-show="(runningSubagents.sessions[session.id] || 0) > 0" x-cloak
-                          class="inline-flex items-center gap-1 rounded-full shrink-0"
-                          style="padding: 1px 6px; font-size: 10px; background: #312e81; color: #c7d2fe; border: 1px solid #4338ca;"
+                          class="sa-badge inline-flex items-center gap-1 rounded-full shrink-0"
                           :title="(runningSubagents.sessions[session.id] || 0) + ' sub-agent(s) actief'">
                         <i class="fa-solid fa-robot animate-pulse"></i><span x-text="runningSubagents.sessions[session.id]"></span>
                     </span>

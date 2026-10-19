@@ -66,7 +66,7 @@ class AppTrayTool extends Tool
     public ?string $instructions = <<<'INSTRUCTIONS'
 The App Tray is the user's launcher: the grid button (always visible in the PocketDev header/sidebar) opens a panel of tiles. Each tile is just an icon, a title, a small subtitle and a link.
 
-PocketDev's own **Instellingen** (Settings) is a built-in first tile with its own sub-links; don't add it yourself.
+PocketDev's own Settings are in the ⋮ menu; don't add them to the tray.
 
 **When to use:**
 - You deployed or built something the user will open again (a web app, dashboard, staging site, admin page): add a tile.

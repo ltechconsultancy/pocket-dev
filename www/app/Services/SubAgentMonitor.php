@@ -57,6 +57,53 @@ class SubAgentMonitor
     }
 
     /**
+     * Running sub-agents for the badges in the session list and the chat tabs.
+     * Nested sub-agents count for the chat (and session) at the top of the chain.
+     *
+     * @return array{sessions: array<string,int>, conversations: array<string,int>}
+     */
+    public function runningCounts(): array
+    {
+        $running = SubAgentTask::whereNull('cancelled_at')
+            ->where('created_at', '>', now()->subDays(2))
+            ->whereHas('childConversation', fn($q) => $q->where('status', Conversation::STATUS_PROCESSING))
+            ->pluck('parent_conversation_uuid');
+
+        $sessions = [];
+        $conversations = [];
+        foreach ($running as $parentUuid) {
+            [$chatUuid, $sessionId] = $this->topChatOf((string) $parentUuid);
+            if ($sessionId) {
+                $sessions[$sessionId] = ($sessions[$sessionId] ?? 0) + 1;
+                $conversations[$chatUuid] = ($conversations[$chatUuid] ?? 0) + 1;
+            }
+        }
+
+        return ['sessions' => $sessions, 'conversations' => $conversations];
+    }
+
+    /**
+     * The chat tab (conversation with a screen) at the top of a sub-agent chain,
+     * and its session. A sub-agent's own conversation has no screen.
+     *
+     * @return array{0: ?string, 1: ?string} [chat conversation uuid, session id]
+     */
+    private function topChatOf(string $conversationUuid): array
+    {
+        for ($depth = 0; $depth <= self::MAX_DEPTH && $conversationUuid; $depth++) {
+            $conversation = Conversation::where('uuid', $conversationUuid)
+                ->with('screen:id,conversation_id,session_id')
+                ->first(['id', 'uuid']);
+            if ($conversation?->screen?->session_id) {
+                return [$conversation->uuid, $conversation->screen->session_id];
+            }
+            $conversationUuid = (string) SubAgentTask::where('child_conversation_uuid', $conversationUuid)->value('parent_conversation_uuid');
+        }
+
+        return [null, null];
+    }
+
+    /**
      * Tasks spawned from the session's chats, plus sub-agents of those sub-agents.
      */
     private function collectTasks(array $parentUuids): Collection

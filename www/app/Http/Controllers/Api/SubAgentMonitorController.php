@@ -21,6 +21,20 @@ class SubAgentMonitorController extends Controller
     }
 
     /**
+     * Running sub-agents per session id and per chat tab (badges in the
+     * session list and the tab bar).
+     */
+    public function running(SubAgentMonitor $monitor): JsonResponse
+    {
+        $counts = $monitor->runningCounts();
+
+        return response()->json([
+            'sessions' => (object) $counts['sessions'],
+            'conversations' => (object) $counts['conversations'],
+        ]);
+    }
+
+    /**
      * Stop a sub-agent from the UI (the user may stop any of them).
      */
     public function cancel(SubAgentTask $task): JsonResponse

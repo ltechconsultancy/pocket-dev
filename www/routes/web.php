@@ -416,6 +416,7 @@ Route::prefix('api')->group(function () {
     */
 
     // Sub-agents of a session (pill + sheet above the chat input)
+    Route::get('subagents/running', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'running']);
     Route::get('sessions/{session}/subagents', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'index']);
     Route::post('subagents/{task}/cancel', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'cancel']);
 

@@ -1983,6 +1983,8 @@
                 _subagentFetchedAt: 0,
                 _subagentSessionId: null,
                 _subagentTick: 0,
+                // Running sub-agents per session / chat tab (badges in sidebar + tab bar)
+                runningSubagents: { sessions: {}, conversations: {} },
                 // Claude Code Remote Control for the current chat (see RemoteControlService)
                 remoteControl: { enabled: false, running: false, paused: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false },
                 _remoteControlUuid: null,
@@ -2429,6 +2431,7 @@
                     });
                     setInterval(() => { if (this.subagents.running > 0) this._subagentTick++; }, 1000);
                     this.refreshSubagents();
+                    this.refreshRunningSubagents();
                     this.$watch('conversationProvider', () => this.refreshRemoteControl());
                     this.$watch('activeScreenId', () => this.refreshRemoteControl());
 
@@ -7235,6 +7238,18 @@
 
                     const busy = this.subagents.running > 0 || this.showSubagentSheet;
                     this._subagentTimer = setTimeout(() => this.refreshSubagents(), busy ? 4000 : 15000);
+                },
+
+                async refreshRunningSubagents() {
+                    if (!document.hidden) {
+                        try {
+                            const response = await fetch('/api/subagents/running', { headers: { 'Accept': 'application/json' } });
+                            if (response.ok) this.runningSubagents = await response.json();
+                        } catch (e) {
+                            // Offline: keep the last known badges
+                        }
+                    }
+                    setTimeout(() => this.refreshRunningSubagents(), 10000);
                 },
 
                 // Live-ticking duration of the longest-running sub-agent

@@ -193,6 +193,17 @@
 
                     <!-- Hidden input carries the actual value -->
                     <input type="hidden" name="model" :value="effectiveModel" required>
+
+                    <!-- Contributor models: the provider may train on everything you send -->
+                    <div x-show="modelIsContributor" x-cloak class="pd-contributor-warning mt-3 rounded-lg p-3 text-sm">
+                        <div class="flex items-start gap-3">
+                            <i class="fa-solid fa-triangle-exclamation text-lg mt-0.5"></i>
+                            <div>
+                                <b class="block mb-1">CONTRIBUTOR-MODEL: je prompts en antwoorden worden gebruikt om modellen te trainen</b>
+                                <span>De aanbieder (bijv. Google of Meta) mag alles wat deze agent verstuurt en ontvangt gebruiken voor training. Daarom is het zo goedkoop. Gebruik dit nooit voor klantcode, wachtwoorden, persoonsgegevens of vertrouwelijk werk.</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Enabled & Default -->
@@ -399,6 +410,25 @@
                         <option value="xhigh" {{ $currentCodexEffort === 'xhigh' ? 'selected' : '' }}>Extra High</option>
                     </select>
                     <p class="text-xs text-gray-400 mt-1">Controls reasoning depth for Codex models</p>
+                </div>
+
+                <!-- OpenCode Go: reasoning effort (variant), clamped per model -->
+                <div x-show="provider === 'opencode'" x-cloak>
+                    <label for="opencode_reasoning_effort" class="block text-sm font-medium mb-2">Reasoning Effort</label>
+                    @php $currentOpenCodeEffort = old('opencode_reasoning_effort', ($agent->reasoning_config['effort'] ?? null) ?? ($sourceAgent->reasoning_config['effort'] ?? 'default')); @endphp
+                    <select
+                        id="opencode_reasoning_effort"
+                        name="opencode_reasoning_effort"
+                        class="w-full px-3 py-2 bg-gray-800 text-white border border-gray-700 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                        @foreach(['default' => 'Model default', 'none' => 'None', 'minimal' => 'Minimal', 'low' => 'Low', 'medium' => 'Medium', 'high' => 'High', 'xhigh' => 'Extra High', 'max' => 'Maximum'] as $value => $label)
+                            <option value="{{ $value }}" {{ $currentOpenCodeEffort === $value ? 'selected' : '' }}>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <p class="text-xs text-gray-400 mt-1">
+                        <span x-show="(opencodeEfforts[effectiveModel] || []).length" x-text="'Dit model ondersteunt: ' + (opencodeEfforts[effectiveModel] || []).join(', ') + '. Andere waarden vallen terug op de standaard.'"></span>
+                        <span x-show="!(opencodeEfforts[effectiveModel] || []).length">Dit model heeft geen instelbaar redeneerniveau; de standaard wordt gebruikt.</span>
+                    </p>
                 </div>
 
                 <!-- Cursor Agent Reasoning Effort -->
@@ -883,6 +913,7 @@
             manualModel: '',
             modelMode: 'select', // 'select' or 'manual'
             modelsPerProvider: @js($modelsPerProvider),
+            opencodeEfforts: @js($opencodeEfforts ?? []),
             selectedTools: @js($formAllowedTools ?? []),
             allToolsSelected: @js($formAllowedTools === null),
             agentSystemPrompt: @js($formSystemPrompt),
@@ -940,6 +971,10 @@
 
             get selectedModelMaxContext() {
                 return (this.maxContextPerProvider[this.provider] || {})[this.effectiveModel] || 0;
+            },
+
+            get modelIsContributor() {
+                return String(this.effectiveModel || '').toLowerCase().includes('contributor');
             },
 
             get modelSupportsExtendedContext() {

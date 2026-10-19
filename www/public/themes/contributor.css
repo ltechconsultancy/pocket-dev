@@ -1,0 +1,25 @@
+/* "Contributor" models (OpenCode Go etc.): the provider may train on your prompts.
+ * Loud on purpose, in every theme. Used by the agent form, agent list and chat banner. */
+
+.pd-contributor-warning { background: #450a0a; border: 2px solid #ef4444; color: #fecaca; }
+.pd-contributor-warning b, .pd-contributor-warning i { color: #fff; }
+.pd-contributor-warning i { color: #f87171; }
+
+.pd-contributor-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px;
+  font-size: 10px; font-weight: 800; letter-spacing: .03em; background: #dc2626; color: #fff; white-space: nowrap; }
+
+.pd-contributor-banner { background: #450a0a; border: 2px solid #ef4444; color: #fecaca; padding: 6px 10px; font-size: 12.5px; line-height: 1.35; }
+.pd-contributor-banner b { color: #fff; }
+.pd-contributor-banner i { color: #f87171; }
+
+html[data-theme="brutal-light"] .pd-contributor-warning,
+html[data-theme="brutal-light"] .pd-contributor-banner { background: #fee2e2; border: 3px solid #000; color: #7f1d1d; box-shadow: 4px 4px 0 #000; border-radius: 0; }
+html[data-theme="brutal-light"] .pd-contributor-warning b,
+html[data-theme="brutal-light"] .pd-contributor-banner b { color: #000; }
+html[data-theme="brutal-light"] .pd-contributor-warning i,
+html[data-theme="brutal-light"] .pd-contributor-banner i { color: #dc2626; }
+
+html[data-theme="brutal-dark"] .pd-contributor-warning,
+html[data-theme="brutal-dark"] .pd-contributor-banner { background: #3b0a0a; border: 3px solid #ef4444; color: #fecaca; box-shadow: 4px 4px 0 #333; border-radius: 0; }
+
+html[data-theme^="brutal"] .pd-contributor-badge { border: 2px solid #000; border-radius: 0; }

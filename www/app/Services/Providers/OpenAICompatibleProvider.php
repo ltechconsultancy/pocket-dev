@@ -59,11 +59,26 @@ class OpenAICompatibleProvider extends AbstractApiProvider
     }
 
     /**
-     * Override base class: returns a single model entry based on configured model name.
-     * OpenAI-compatible providers don't use the model repository.
+     * Models offered by the server (GET /v1/models), falling back to the single
+     * configured model. Contributor models (the provider may train on your prompts)
+     * carry 'contributor' => true and a warning prefix in their name.
      */
     public function getModels(): array
     {
+        $dynamic = self::discoverModels();
+        if (!empty($dynamic)) {
+            return collect($dynamic)
+                ->mapWithKeys(fn (array $m) => [
+                    $m['model_id'] => [
+                        'name' => $m['display_name'],
+                        'context_window' => $m['context_window'],
+                        'max_output_tokens' => $m['max_output_tokens'],
+                        'contributor' => $m['contributor'],
+                    ],
+                ])
+                ->toArray();
+        }
+
         // Return a single model entry based on configured model name
         $modelName = $this->defaultModel ?: 'Local Model';
         $modelId = $this->defaultModel ?: 'default';
@@ -73,20 +88,153 @@ class OpenAICompatibleProvider extends AbstractApiProvider
                 'name' => $modelName,
                 'context_window' => $this->contextWindow,
                 'max_output_tokens' => $this->maxTokens,
+                'contributor' => self::isContributorModel($modelId),
             ],
         ];
     }
 
     /**
-     * Override base class: context window is configured globally via UI settings.
+     * Per-model context window when the server's model list knows it,
+     * otherwise the global UI setting.
      */
     public function getContextWindow(string $model): int
     {
-        // $model is unused - local LLMs don't expose per-model context windows via API.
-        // Context window is configured globally via UI settings.
-        unset($model);
+        foreach (self::discoverModels() as $m) {
+            if ($m['model_id'] === $model && !empty($m['context_window'])) {
+                return (int) $m['context_window'];
+            }
+        }
 
         return $this->contextWindow;
+    }
+
+    /**
+     * "Contributor" models are discounted because the provider may use your
+     * prompts and completions to train its models (e.g. OpenCode Go's
+     * gemini-4-argon-contributor, muse-spark-1.3-contributor).
+     */
+    public static function isContributorModel(string $modelIdOrName): bool
+    {
+        return str_contains(strtolower($modelIdOrName), 'contributor');
+    }
+
+    /**
+     * Discover models from the configured server (GET {base}/v1/models).
+     * For OpenCode (opencode.ai) the list is enriched with names and context
+     * windows from models.dev, and models that are only served on a
+     * non-Chat-Completions endpoint (Anthropic/Google) are left out.
+     * Cached for 1 hour per base URL + key; failures are cached for 5 minutes.
+     *
+     * @return array<int, array{model_id: string, display_name: string, context_window: int, max_output_tokens: int, contributor: bool}>
+     */
+    public static function discoverModels(): array
+    {
+        $settings = app(AppSettingsService::class);
+        $baseUrl = rtrim((string) $settings->getOpenAiCompatibleBaseUrl(), '/');
+        if ($baseUrl === '') {
+            return [];
+        }
+        $apiKey = $settings->getOpenAiCompatibleApiKey();
+        $cacheKey = 'openai_compatible_models:' . md5($baseUrl . '|' . ($apiKey ?? ''));
+
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $fallbackContext = $settings->getOpenAiCompatibleContextWindow()
+            ?? (int) config('ai.providers.openai_compatible.context_window', 32768);
+        $fallbackOutput = (int) config('ai.providers.openai_compatible.max_tokens', 8192);
+
+        $ids = [];
+        try {
+            $request = \Illuminate\Support\Facades\Http::timeout(8)->acceptJson();
+            if (!empty($apiKey)) {
+                $request = $request->withToken($apiKey);
+            }
+            $response = $request->get($baseUrl . '/v1/models');
+            if ($response->successful()) {
+                foreach ((array) $response->json('data', []) as $row) {
+                    if (!empty($row['id']) && is_string($row['id'])) {
+                        $ids[] = $row['id'];
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('OpenAICompatibleProvider: model discovery failed', ['error' => $e->getMessage()]);
+        }
+
+        $meta = self::modelsDevMetadata($baseUrl);
+        if (empty($ids) && !empty($meta)) {
+            // Some gateways (OpenCode) do not list models on this endpoint: use models.dev
+            $ids = array_keys($meta);
+        }
+
+        $models = [];
+        foreach (array_unique($ids) as $id) {
+            $m = $meta[$id] ?? null;
+            if ($m !== null && in_array($m['npm'] ?? '', ['@ai-sdk/anthropic', '@ai-sdk/google'], true)) {
+                continue; // served on /anthropic or /google, not on /v1/chat/completions
+            }
+            $name = $m['name'] ?? $id;
+            $contributor = self::isContributorModel($id) || self::isContributorModel($name);
+            $models[] = [
+                'model_id' => $id,
+                'display_name' => $contributor ? '⚠ CONTRIBUTOR (traint op je data) · ' . $name : $name,
+                'context_window' => (int) ($m['limit']['context'] ?? $fallbackContext),
+                'max_output_tokens' => (int) ($m['limit']['output'] ?? $fallbackOutput),
+                'contributor' => $contributor,
+            ];
+        }
+
+        // Regular models first (alphabetical), contributor models last
+        usort($models, fn ($a, $b) => [$a['contributor'], strtolower($a['display_name'])]
+            <=> [$b['contributor'], strtolower($b['display_name'])]);
+
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $models, empty($models) ? 300 : 3600);
+
+        return $models;
+    }
+
+    /**
+     * models.dev metadata for the provider whose API base matches $baseUrl
+     * (only for opencode.ai). Keyed by model id.
+     */
+    private static function modelsDevMetadata(string $baseUrl): array
+    {
+        if (!str_contains($baseUrl, 'opencode.ai')) {
+            return [];
+        }
+
+        $cacheKey = 'models_dev_provider:' . md5($baseUrl);
+        $cached = \Illuminate\Support\Facades\Cache::get($cacheKey);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        $models = [];
+        try {
+            $response = \Illuminate\Support\Facades\Http::timeout(15)->get('https://models.dev/api.json');
+            foreach ($response->successful() ? (array) $response->json() : [] as $provider) {
+                if (is_array($provider) && rtrim((string) ($provider['api'] ?? ''), '/') === $baseUrl . '/v1') {
+                    foreach ((array) ($provider['models'] ?? []) as $id => $m) {
+                        // Keep only what we use (the full catalog is several MB)
+                        $models[$id] = [
+                            'name' => $m['name'] ?? $id,
+                            'npm' => $m['provider']['npm'] ?? null,
+                            'limit' => $m['limit'] ?? [],
+                        ];
+                    }
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('OpenAICompatibleProvider: models.dev lookup failed', ['error' => $e->getMessage()]);
+        }
+
+        \Illuminate\Support\Facades\Cache::put($cacheKey, $models, empty($models) ? 300 : 21600);
+
+        return $models;
     }
 
     /**

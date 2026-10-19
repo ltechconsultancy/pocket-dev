@@ -1,5 +1,6 @@
 {{-- Fixed Bottom Input (Mobile) --}}
 <div x-ref="mobileInput" class="js-chat-input fixed bottom-0 left-0 right-0 z-20 bg-gray-800 border-t border-gray-700 safe-area-bottom">
+    @include('partials.chat.contributor-banner', ['wrapperClass' => 'px-2 pt-2'])
     @include('partials.chat.subagent-pill', ['wrapperClass' => 'px-2 pt-2'])
     <div x-show="queuedFollowUps.length > 0 && getScreen(activeScreenId)?.type === 'chat'" x-cloak class="px-2 pt-2 flex flex-col gap-1 max-h-28 overflow-y-auto">
         <div class="text-[11px] text-amber-400/80" x-text="isStreaming ? 'Queued — sends after current tool' : 'Queued — tap Send to deliver'"></div>

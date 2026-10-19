@@ -28,6 +28,7 @@ class CredentialsController extends Controller
             'hasClaudeCode' => $this->settings->isClaudeCodeAuthenticated(),
             'hasCodex' => $this->settings->isCodexAuthenticated(),
             'hasCursorAgent' => $this->settings->isCursorAgentAuthenticated(),
+            'hasOpenCode' => \App\Services\Providers\OpenCodeProvider::isLoggedIn(),
             'hasOpenAiCompatible' => $this->settings->hasOpenAiCompatibleBaseUrl(),
             'openAiCompatibleBaseUrl' => $this->settings->getOpenAiCompatibleBaseUrl(),
             'openAiCompatibleModel' => $this->settings->getOpenAiCompatibleModel(),

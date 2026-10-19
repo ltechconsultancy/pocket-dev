@@ -18,6 +18,7 @@ use App\Http\Controllers\ChatController;
 use App\Http\Controllers\ClaudeAuthController;
 use App\Http\Controllers\CodexAuthController;
 use App\Http\Controllers\CursorAuthController;
+use App\Http\Controllers\OpenCodeAuthController;
 use App\Http\Controllers\ConfigController;
 use App\Http\Controllers\CredentialsController;
 use App\Http\Controllers\EnvironmentController;
@@ -146,6 +147,11 @@ Route::middleware(['auth', 'throttle:10,1'])->group(function () {
     Route::post("/cursor/auth/upload-json", [CursorAuthController::class, "uploadJson"])->name("cursor.auth.uploadJson");
     Route::post("/cursor/auth/browser-start", [CursorAuthController::class, "startBrowserAuth"])->name("cursor.auth.browserStart");
     Route::delete("/cursor/auth/logout", [CursorAuthController::class, "logout"])->name("cursor.auth.logout");
+});
+// OpenCode Go: status page (login runs in a terminal: `opencode auth login opencode`)
+Route::middleware(['auth', 'throttle:20,1'])->group(function () {
+    Route::get("/opencode/auth", [OpenCodeAuthController::class, "index"])->name("opencode.auth");
+    Route::get("/opencode/auth/status", [OpenCodeAuthController::class, "status"])->name("opencode.auth.status");
 });
 // Laptop curl upload: CSRF-exempt, no session cookie — requires one-time upload_token
 // issued only from authenticated GET /cursor/auth (see CursorAuthController::uploadJson)

@@ -1348,8 +1348,9 @@
                     {{-- Context window progress bar --}}
                     <x-chat.context-progress />
                 </div>
-                {{-- Conversation Menu (⋮) + App Tray (⊞, where the gear used to be) --}}
+                {{-- Claude usage rings + Conversation Menu (⋮) + App Tray (⊞, where the gear used to be) --}}
                 <div class="relative flex items-center">
+                    @include('partials.chat.claude-usage')
                     <button @click="showConversationMenu = !showConversationMenu"
                             class="text-gray-300 hover:text-white p-2 cursor-pointer"
                             title="Sessie- en chatacties">
@@ -1995,6 +1996,9 @@
 
                 // Toast notification
                 toastMessage: '',
+                // Claude subscription usage rings (partials/chat/claude-usage)
+                claudeUsage: { five_hour: null, seven_day: null, fetched_at: null },
+                showClaudeUsage: false,
                 // Theme: 'classic' | 'brutal-light' | 'brutal-dark' (per device, see partials/pwa-head)
                 theme: document.documentElement.getAttribute('data-theme') || 'classic',
                 // App Tray (link tiles added by agents via `pd app-tray`)
@@ -2467,6 +2471,7 @@
                     setInterval(() => { if (this.subagents.running > 0) this._subagentTick++; }, 1000);
                     this.refreshSubagents();
                     this.refreshRunningSubagents();
+                    this.refreshClaudeUsage();
                     this.$watch('conversationProvider', () => this.refreshRemoteControl());
                     this.$watch('activeScreenId', () => this.refreshRemoteControl());
 
@@ -7238,6 +7243,53 @@
                         return false;
                     }
                     return true;
+                },
+
+                // ===== Claude usage rings =====
+
+                // Same data as Settings > Usage (server caches it for 5 minutes)
+                async refreshClaudeUsage() {
+                    if (!document.hidden) {
+                        try {
+                            const response = await fetch('/api/usage/claude-limits', { headers: { 'Accept': 'application/json' } });
+                            const data = response.ok ? await response.json() : null;
+                            if (data?.available) {
+                                const win = (w) => w && w.utilization !== undefined && w.utilization !== null
+                                    ? { percent: Number(w.utilization), resets_at: w.resets_at } : null;
+                                this.claudeUsage = { five_hour: win(data.five_hour), seven_day: win(data.seven_day), fetched_at: new Date().toISOString() };
+                            }
+                        } catch (e) {
+                            // Offline: keep the last values
+                        }
+                    }
+                    setTimeout(() => this.refreshClaudeUsage(), 120000);
+                },
+
+                // Color by percentage: green < 50, yellow 50-79, orange 80-94, red >= 95
+                claudeUsageLevel(win) {
+                    const p = win?.percent || 0;
+                    return p >= 95 ? 'cu-crit' : p >= 80 ? 'cu-warn' : p >= 50 ? 'cu-mid' : 'cu-ok';
+                },
+
+                claudeUsageTitle() {
+                    const u = this.claudeUsage;
+                    const part = (label, w) => w ? `${label} ${Math.round(w.percent)}%` : null;
+                    return ['Claude', part('5 uur', u.five_hour), part('week', u.seven_day)].filter(Boolean).join(' · ');
+                },
+
+                formatUsageReset(iso) {
+                    if (!iso) return '';
+                    const d = new Date(iso);
+                    const now = new Date();
+                    const time = d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+                    if (d.toDateString() === now.toDateString()) return 'vandaag ' + time;
+                    return d.toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short' }) + ' ' + time;
+                },
+
+                formatUsageAge(iso) {
+                    if (!iso) return '';
+                    const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+                    return minutes < 1 ? 'zojuist' : minutes + ' min geleden';
                 },
 
                 // ===== Theme =====

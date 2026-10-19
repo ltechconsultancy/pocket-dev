@@ -1,7 +1,24 @@
 {{-- PWA: installable app (Chrome desktop/Android "Install app", iOS "Add to Home Screen").
      Manifest + icons live in public/, the service worker is public/sw.js. --}}
+{{-- Theme (Classic / Brutalism light / Brutalism dark), per device. Applied before the
+     page paints so there is no flash; public/themes/brutalism.css only acts on data-theme. --}}
+<link rel="stylesheet" href="/themes/brutalism.css?v=3">
+<script>
+    (function () {
+        var theme = null;
+        try { theme = localStorage.getItem('pd-theme'); } catch (e) {}
+        if (theme === 'brutal-light' || theme === 'brutal-dark') {
+            document.documentElement.setAttribute('data-theme', theme);
+        }
+        window.pdThemeColor = function () {
+            var t = document.documentElement.getAttribute('data-theme');
+            return t === 'brutal-light' ? '#ffffff' : (t === 'brutal-dark' ? '#121212' : '#1f2937');
+        };
+    })();
+</script>
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#1f2937">
+<script>document.querySelector('meta[name=theme-color]').setAttribute('content', window.pdThemeColor());</script>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="PocketDev">

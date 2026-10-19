@@ -22,7 +22,7 @@
 
     {{-- Modal Content --}}
     <div class="relative w-full h-full bg-gray-900 flex flex-col overflow-hidden shadow-2xl"
-         :class="($store.filePreview.isImage || $store.filePreview.isVideo) ? '' : 'md:h-[85vh] md:max-h-[85vh] md:max-w-4xl md:mx-4 md:rounded-lg'"
+         :class="$store.filePreview.isMedia ? '' : 'md:h-[85vh] md:max-h-[85vh] md:max-w-4xl md:mx-4 md:rounded-lg'"
          @click.stop>
 
         {{-- Header --}}
@@ -58,7 +58,7 @@
                         <button @click="$store.filePreview.copyContent()"
                                 class="p-2 text-gray-400 hover:text-white transition-colors rounded hover:bg-gray-700"
                                 title="Copy content"
-                                x-show="!$store.filePreview.loading && !$store.filePreview.stack.at(-1)?.error && !$store.filePreview.isImage && !$store.filePreview.isVideo">
+                                x-show="!$store.filePreview.loading && !$store.filePreview.stack.at(-1)?.error && !$store.filePreview.isMedia">
                             <template x-if="!$store.filePreview.copied">
                                 <i class="fa-regular fa-copy"></i>
                             </template>
@@ -84,7 +84,7 @@
                         <button @click="$store.filePreview.toggleFullscreen()"
                                 class="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition-colors"
                                 title="Fullscreen"
-                                x-show="!$store.filePreview.loading && ($store.filePreview.isImage || $store.filePreview.isVideo)">
+                                x-show="!$store.filePreview.loading && $store.filePreview.isMedia">
                             <i class="fa-solid fa-expand"></i>
                         </button>
                         <button @click="$store.filePreview.downloadFile()"
@@ -98,7 +98,7 @@
                         <button @click="$store.filePreview.startEditing()"
                                 class="p-2 text-gray-400 hover:text-white transition-colors rounded hover:bg-gray-700"
                                 title="Edit file"
-                                x-show="!$store.filePreview.loading && !$store.filePreview.stack.at(-1)?.error && !$store.filePreview.isImage && !$store.filePreview.isVideo">
+                                x-show="!$store.filePreview.loading && !$store.filePreview.stack.at(-1)?.error && !$store.filePreview.isMedia">
                             <i class="fa-regular fa-pen-to-square"></i>
                         </button>
 
@@ -207,6 +207,11 @@
                            playsinline
                            preload="none"></video>
                 </div>
+            </template>
+
+            {{-- PDF: rendered with PDF.js (zoom, rotate, fullscreen) --}}
+            <template x-if="!$store.filePreview.loading && !$store.filePreview.error && $store.filePreview.isPdf">
+                @include('partials.pdf-viewer')
             </template>
 
             {{-- View mode - File content --}}

@@ -112,8 +112,11 @@
                     get isBinary() { return this.current.isBinary || false; },
                     get isImage() { return this.current.isImage || false; },
                     get isVideo() { return this.current.isVideo || false; },
+                    get isPdf() { return this.current.isPdf || false; },
+                    // Rendered visually (no text content / copy / edit)
+                    get isMedia() { return this.isImage || this.isVideo || this.isPdf; },
                     get mediaUrl() {
-                        if (!this.path || (!this.isImage && !this.isVideo)) return '';
+                        if (!this.path || !this.isMedia) return '';
                         return '/api/file/media?path=' + encodeURIComponent(this.path);
                     },
                     get readable() { return this.current.readable || false; },
@@ -145,6 +148,7 @@
                             isBinary: false,
                             isImage: false,
                             isVideo: false,
+                            isPdf: false,
                             isMarkdown: false,
                             isHtml: false,
                             sizeFormatted: '',
@@ -185,9 +189,10 @@
 
                             if (!data.exists) {
                                 updatedEntry.error = 'File not found';
-                            } else if (data.is_image || data.is_video) {
+                            } else if (data.is_image || data.is_video || data.is_pdf) {
                                 updatedEntry.isImage = !!data.is_image;
                                 updatedEntry.isVideo = !!data.is_video;
+                                updatedEntry.isPdf = !!data.is_pdf;
                                 updatedEntry.filename = data.filename;
                                 updatedEntry.sizeFormatted = data.size_formatted;
                             } else if (data.too_large) {

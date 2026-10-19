@@ -40,8 +40,18 @@ class OpenCodeProvider extends AbstractCliProvider
 
     private const INSTRUCTIONS_DIR = '/tmp/pocketdev-opencode';
 
-    /** Effort values the UI can send; clamped per model to what the model supports. */
-    public const EFFORT_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+    /** Labels for the CLI variant ids (the set per model comes from `opencode api model.list`). */
+    public const VARIANT_LABELS = [
+        'default' => 'Model default',
+        'none' => 'Uit (geen reasoning)',
+        'minimal' => 'Minimaal',
+        'low' => 'Laag',
+        'medium' => 'Gemiddeld',
+        'high' => 'Hoog',
+        'xhigh' => 'Extra hoog',
+        'max' => 'Maximaal',
+        'thinking' => 'Aan (thinking)',
+    ];
 
     private ?string $instructionsFile = null;
 
@@ -114,8 +124,13 @@ class OpenCodeProvider extends AbstractCliProvider
      * container) go through `docker exec -u appuser` into the queue container so
      * they never touch the CLI database with the wrong user.
      */
-    public static function runCli(string $args, int $timeoutSeconds = 30): string
+    public static function runCli(string $args, int $timeoutSeconds = 30, array $env = []): string
     {
+        $envPrefix = '';
+        foreach ($env as $key => $value) {
+            $envPrefix .= $key . '=' . escapeshellarg((string) $value) . ' ';
+        }
+
         $home = getenv('HOME') ?: '/home/appuser';
         $isAppUser = function_exists('posix_geteuid') && @fileowner($home) === posix_geteuid();
 
@@ -124,12 +139,12 @@ class OpenCodeProvider extends AbstractCliProvider
             if ($bin === null) {
                 return '';
             }
-            $command = 'timeout ' . $timeoutSeconds . ' ' . escapeshellarg($bin) . ' ' . $args;
+            $command = $envPrefix . 'timeout ' . $timeoutSeconds . ' ' . escapeshellarg($bin) . ' ' . $args;
         } else {
             $container = config('pocketdev.project_name', 'pocket-dev') . '-queue';
             $command = 'timeout ' . ($timeoutSeconds + 5) . ' docker exec -u appuser -e HOME=/home/appuser '
                 . escapeshellarg($container) . ' sh -lc '
-                . escapeshellarg('B=$(command -v opencode || echo $HOME/.npm-global/bin/opencode); timeout ' . $timeoutSeconds . ' "$B" ' . $args);
+                . escapeshellarg('B=$(command -v opencode || echo $HOME/.npm-global/bin/opencode); ' . $envPrefix . 'timeout ' . $timeoutSeconds . ' "$B" ' . $args);
         }
 
         $output = (string) shell_exec($command . ' 2>/dev/null');
@@ -241,9 +256,11 @@ class OpenCodeProvider extends AbstractCliProvider
     }
 
     /**
-     * OpenCode Go models: the list from `opencode models` (when logged in), enriched with
-     * names, limits and reasoning options from models.dev. Without a login the models.dev
-     * list is used, so agents can be configured before logging in. Cached for 1 hour.
+     * OpenCode Go models from the CLI itself (`opencode api model.list`): names, limits
+     * and the exact variants (reasoning levels) the CLI accepts per model. Before login the
+     * CLI only lists Go models with a key present, so a placeholder key is used for
+     * listing (no request is sent to a model). Fallback: models.dev without variants, so
+     * the UI can never offer a variant the CLI would reject. Cached for 1 hour.
      *
      * @return array<int, array{model_id: string, display_name: string, context_window: int, max_output_tokens: int, max_context_window: int, contributor: bool, efforts: array<int, string>}>
      */
@@ -254,36 +271,43 @@ class OpenCodeProvider extends AbstractCliProvider
             return $cached;
         }
 
-        $meta = self::modelsDevGoModels();
-
-        $ids = [];
-        if (self::isLoggedIn()) {
-            $output = self::runCli('models', 30);
-            foreach (preg_split('/\R/', $output) as $line) {
-                $line = trim($line);
-                if (str_starts_with($line, self::GO_PROVIDER . '/')) {
-                    $ids[] = substr($line, strlen(self::GO_PROVIDER) + 1);
-                }
+        $entries = [];
+        $env = self::isLoggedIn() ? [] : ['OPENCODE_API_KEY' => 'pocketdev-model-listing'];
+        $list = json_decode(self::runCli('api --standalone model.list', 45, $env), true);
+        foreach ((array) ($list['data'] ?? []) as $m) {
+            if (($m['providerID'] ?? '') !== self::GO_PROVIDER || empty($m['modelID']) || ($m['enabled'] ?? true) === false) {
+                continue;
             }
+            $entries[$m['modelID']] = [
+                'name' => $m['name'] ?? $m['modelID'],
+                'limit' => $m['limit'] ?? [],
+                'efforts' => array_values(array_filter(array_map(
+                    fn ($v) => is_array($v) ? (string) ($v['id'] ?? '') : (string) $v,
+                    (array) ($m['variants'] ?? [])
+                ))),
+            ];
         }
-        if (empty($ids)) {
-            $ids = array_keys($meta);
+
+        if (empty($entries)) {
+            // CLI unavailable: names + limits from models.dev, no variants (only "model default")
+            foreach (self::modelsDevGoModels() as $id => $m) {
+                $entries[$id] = ['name' => $m['name'] ?? $id, 'limit' => $m['limit'] ?? [], 'efforts' => []];
+            }
         }
 
         $models = [];
-        foreach (array_unique($ids) as $id) {
-            $m = $meta[$id] ?? [];
-            $name = $m['name'] ?? $id;
+        foreach ($entries as $id => $m) {
+            $name = $m['name'];
             $contributor = OpenAICompatibleProvider::isContributorModel($id . ' ' . $name);
             $context = (int) ($m['limit']['context'] ?? 200000);
             $models[] = [
-                'model_id' => $id,
+                'model_id' => (string) $id,
                 'display_name' => $contributor ? '⚠ CONTRIBUTOR (traint op je data) · ' . $name : $name,
                 'context_window' => $context,
                 'max_context_window' => $context,
                 'max_output_tokens' => (int) ($m['limit']['output'] ?? 32000),
                 'contributor' => $contributor,
-                'efforts' => $m['efforts'] ?? [],
+                'efforts' => $m['efforts'],
             ];
         }
 
@@ -294,6 +318,22 @@ class OpenCodeProvider extends AbstractCliProvider
         Cache::put('opencode_go_models', $models, empty($models) ? 300 : 3600);
 
         return $models;
+    }
+
+    /**
+     * Variants (reasoning levels) the CLI accepts for this model.
+     *
+     * @return array<int, string>
+     */
+    public static function variantsFor(string $model): array
+    {
+        foreach (self::discoverModels() as $m) {
+            if ($m['model_id'] === $model) {
+                return $m['efforts'];
+            }
+        }
+
+        return [];
     }
 
     /**
@@ -311,16 +351,9 @@ class OpenCodeProvider extends AbstractCliProvider
             $response = Http::timeout(15)->get('https://models.dev/api.json');
             $provider = $response->successful() ? ($response->json(self::GO_PROVIDER) ?? []) : [];
             foreach ((array) ($provider['models'] ?? []) as $id => $m) {
-                $efforts = [];
-                foreach ((array) ($m['reasoning_options'] ?? []) as $option) {
-                    if (($option['type'] ?? '') === 'effort') {
-                        $efforts = array_values(array_map('strval', (array) ($option['values'] ?? [])));
-                    }
-                }
                 $models[$id] = [
                     'name' => $m['name'] ?? $id,
                     'limit' => $m['limit'] ?? [],
-                    'efforts' => $efforts,
                 ];
             }
         } catch (\Throwable $e) {
@@ -340,13 +373,8 @@ class OpenCodeProvider extends AbstractCliProvider
         if ($effort === null || $effort === '' || $effort === 'default') {
             return null;
         }
-        foreach (self::discoverModels() as $m) {
-            if ($m['model_id'] === $model) {
-                return in_array($effort, $m['efforts'], true) ? $effort : null;
-            }
-        }
 
-        return null;
+        return in_array($effort, self::variantsFor($model), true) ? $effort : null;
     }
 
     // ========================================================================

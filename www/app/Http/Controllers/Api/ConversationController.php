@@ -315,7 +315,7 @@ class ConversationController extends Controller
             'cursor_agent_reasoning_effort' => 'nullable|string|in:none,low,medium,high,xhigh,max',
             'cursor_agent_thinking' => 'nullable|boolean',
             'cursor_agent_fast' => 'nullable|boolean',
-            'opencode_reasoning_effort' => 'nullable|string|in:default,none,minimal,low,medium,high,xhigh,max',
+            'opencode_reasoning_effort' => 'nullable|string|in:default,none,minimal,low,medium,high,xhigh,max,thinking',
             'response_level' => 'nullable|integer|min:0|max:5',
             // Legacy support - will be converted to provider-specific
             'thinking_level' => 'nullable|integer|min:0|max:4',

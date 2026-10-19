@@ -469,3 +469,25 @@ html[data-theme="brutal-light"] .hljs :is(.hljs-title, .hljs-section, .hljs-name
 html[data-theme="brutal-light"] .hljs :is(.hljs-symbol, .hljs-bullet, .hljs-link, .hljs-meta, .hljs-params) { color: #953800; }
 html[data-theme="brutal-light"] .hljs .hljs-deletion { color: #b3261e; background: #ffebe9; }
 html[data-theme="brutal-light"] .hljs .hljs-addition { background: #dafbe1; }
+
+/* ---------------------------------------------------------------- settings alerts (layouts/config) */
+/* Desktop toasts (.notification, top right) and mobile inline alerts (.pd-alert) */
+html[data-theme^="brutal"] :is(.notification, .pd-alert) {
+    border: var(--b-bw) solid var(--b-ink);
+    border-left-width: 10px;
+    border-radius: 0;
+    box-shadow: var(--b-sh) var(--b-sh) 0 var(--b-shadow);
+    font-weight: 700;
+}
+html[data-theme^="brutal"] :is(.notification.success, .pd-alert-success) {
+    background: var(--b-accent);
+    color: var(--b-accent-ink);
+    border-color: var(--b-accent-ink);
+}
+html[data-theme^="brutal"] :is(.notification.error, .pd-alert-error) {
+    background: var(--b-red);
+    color: #fff;
+    border-color: var(--b-accent-ink);
+}
+html[data-theme="brutal-light"] :is(.notification, .pd-alert) { box-shadow: var(--b-sh) var(--b-sh) 0 #000; }
+html[data-theme^="brutal"] :is(.notification, .pd-alert) :is(li, span, p) { color: inherit; }

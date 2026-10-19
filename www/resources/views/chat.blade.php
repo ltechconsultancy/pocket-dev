@@ -1665,6 +1665,9 @@
                 <i class="fas fa-arrow-down"></i>
             </button>
 
+            {{-- Sub-agents of this session: pill above the input + sheet --}}
+            @include('partials.chat.subagents')
+
             {{-- Desktop Input (hidden on mobile and when viewing panels) - fixed at bottom to match fixed #messages --}}
             <div x-show="!isActiveScreenPanel" x-ref="desktopInput" class="hidden md:block md:fixed md:bottom-0 md:left-64 md:right-0 md:z-10">
                 @include('partials.chat.input-desktop')
@@ -1971,6 +1974,15 @@
                 appTrayItems: [],
                 appTrayLoading: false,
                 appTraySelected: null, // app whose sub-links are shown
+                // Sub-agents of the current session (pill + sheet above the input)
+                subagents: { running: 0, items: [] },
+                showSubagentSheet: false,
+                subagentOpen: {},      // task id -> expanded steps
+                subagentFlash: false,  // briefly show "Sub-agent klaar"
+                _subagentTimer: null,
+                _subagentFetchedAt: 0,
+                _subagentSessionId: null,
+                _subagentTick: 0,
                 // Claude Code Remote Control for the current chat (see RemoteControlService)
                 remoteControl: { enabled: false, running: false, paused: false, connected: false, url: null, name: null, error: null, imported_at: null, busy: false },
                 _remoteControlUuid: null,
@@ -2385,6 +2397,12 @@
                     // Remote Control state follows the open chat
                     // (provider/screen can settle after the uuid, so watch those too)
                     this.$watch('currentConversationUuid', () => this.refreshRemoteControl());
+                    // Sub-agents follow the open session (currentSession is replaced often, compare ids)
+                    this.$watch('currentSession', (session) => {
+                        if ((session?.id || null) !== this._subagentSessionId) this.refreshSubagents();
+                    });
+                    setInterval(() => { if (this.subagents.running > 0) this._subagentTick++; }, 1000);
+                    this.refreshSubagents();
                     this.$watch('conversationProvider', () => this.refreshRemoteControl());
                     this.$watch('activeScreenId', () => this.refreshRemoteControl());
 
@@ -7179,6 +7197,89 @@
                         return false;
                     }
                     return true;
+                },
+
+                // ===== Sub-agents of this session =====
+
+                async refreshSubagents() {
+                    clearTimeout(this._subagentTimer);
+                    const sessionId = this.currentSession?.id || null;
+                    if (sessionId !== this._subagentSessionId) {
+                        this._subagentSessionId = sessionId;
+                        this.subagents = { running: 0, items: [] };
+                        this.subagentOpen = {};
+                        this.subagentFlash = false;
+                    }
+                    if (!sessionId) return;
+
+                    if (!document.hidden) {
+                        try {
+                            const response = await fetch(`/api/sessions/${sessionId}/subagents`, { headers: { 'Accept': 'application/json' } });
+                            if (response.ok && sessionId === this._subagentSessionId) {
+                                const data = await response.json();
+                                if (data.running < this.subagents.running) {
+                                    // One finished: show "Sub-agent klaar" for a moment
+                                    this.subagentFlash = true;
+                                    setTimeout(() => { this.subagentFlash = false; }, 8000);
+                                }
+                                this.subagents = data;
+                                this._subagentFetchedAt = Date.now();
+                            }
+                        } catch (e) {
+                            // Offline: try again on the next tick
+                        }
+                    }
+
+                    const busy = this.subagents.running > 0 || this.showSubagentSheet;
+                    this._subagentTimer = setTimeout(() => this.refreshSubagents(), busy ? 4000 : 15000);
+                },
+
+                // Live-ticking duration of the longest-running sub-agent
+                longestRunningSeconds() {
+                    this._subagentTick; // re-evaluate every second
+                    const extra = this._subagentFetchedAt ? (Date.now() - this._subagentFetchedAt) / 1000 : 0;
+                    const running = this.subagents.items.filter(i => i.status === 'running' || i.status === 'pending');
+                    return running.length ? Math.max(...running.map(i => i.duration_seconds)) + extra : 0;
+                },
+
+                formatSubagentDuration(seconds) {
+                    seconds = Math.max(0, Math.round(seconds));
+                    if (seconds < 60) return seconds + 's';
+                    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + String(seconds % 60).padStart(2, '0') + 's';
+                    return Math.floor(seconds / 3600) + 'u ' + Math.floor((seconds % 3600) / 60) + 'm';
+                },
+
+                subagentMeta(item) {
+                    this._subagentTick;
+                    const parts = [item.agent];
+                    if (item.background) parts.push('achtergrond');
+                    if (item.status === 'running' || item.status === 'pending') {
+                        const extra = this._subagentFetchedAt ? (Date.now() - this._subagentFetchedAt) / 1000 : 0;
+                        parts.push(this.formatSubagentDuration(item.duration_seconds + extra));
+                    } else if (item.status === 'completed') {
+                        parts.push('klaar in ' + this.formatSubagentDuration(item.duration_seconds));
+                        if (item.delivered) parts.push('resultaat afgeleverd');
+                    } else if (item.status === 'failed') {
+                        parts.push('mislukt');
+                    } else if (item.status === 'cancelled') {
+                        parts.push('gestopt');
+                    }
+                    return parts.join(' · ');
+                },
+
+                async cancelSubagent(item) {
+                    if (!confirm(`Sub-agent "${item.title}" stoppen?`)) return;
+                    try {
+                        const response = await fetch(`/api/subagents/${item.id}/cancel`, {
+                            method: 'POST',
+                            headers: { 'Accept': 'application/json' },
+                        });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        this.showToast('Sub-agent wordt gestopt');
+                    } catch (e) {
+                        this.showError('Stoppen mislukt: ' + e.message);
+                    }
+                    this.refreshSubagents();
                 },
 
                 // ===== App Tray =====

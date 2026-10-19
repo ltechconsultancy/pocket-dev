@@ -415,6 +415,10 @@ Route::prefix('api')->group(function () {
     |
     */
 
+    // Sub-agents of a session (pill + sheet above the chat input)
+    Route::get('sessions/{session}/subagents', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'index']);
+    Route::post('subagents/{task}/cancel', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'cancel']);
+
     // App Tray (link tiles added by agents via `pd app-tray`)
     Route::get('app-tray', [\App\Http\Controllers\Api\AppTrayController::class, 'index']);
 

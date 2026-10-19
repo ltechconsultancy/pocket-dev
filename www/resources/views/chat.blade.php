@@ -1999,6 +1999,9 @@
                 toastMessage: '',
                 // Claude subscription usage rings (partials/chat/claude-usage)
                 claudeUsage: { five_hour: null, seven_day: null, fetched_at: null },
+                // Sent user messages the server has not saved yet (the queue job saves them).
+                // A reload in that window would drop them from view: { [uuid]: [{ content, at }] }
+                _pendingUserMessages: {},
                 showClaudeUsage: false,
                 // Theme: 'classic' | 'brutal-light' | 'brutal-dark' (per device, see partials/pwa-head)
                 theme: document.documentElement.getAttribute('data-theme') || 'classic',
@@ -3982,6 +3985,8 @@
                             // No messages - clear loading overlay immediately
                             this.loadingConversation = false;
                             this._loadingConversationUuid = null;
+                            // First message of a new chat may not be saved yet
+                            this.restorePendingUserMessages(uuid);
                         }
 
                         // Update provider/model from conversation
@@ -4355,6 +4360,7 @@
                         } else {
                             this.loadingConversation = false;
                             this._loadingConversationUuid = null;
+                            this.restorePendingUserMessages(uuid);
                         }
 
                         // Clear pendingScrollToTurn after applying (so later loads behave normally)
@@ -5801,7 +5807,47 @@
                  * Progressive message loading - delegates to messageStore
                  */
                 async loadMessagesProgressively(dbMessages, targetTurn = null, loadUuid = null) {
-                    const self = this;
+                    const result = await this._loadMessagesFromStore(dbMessages, targetTurn, loadUuid);
+                    this.restorePendingUserMessages(loadUuid || this.currentConversationUuid);
+                    return result;
+                },
+
+                rememberPendingUserMessage(uuid, content) {
+                    if (!uuid || !content) return;
+                    const list = (this._pendingUserMessages[uuid] || []).filter(p => Date.now() - p.at < 10 * 60 * 1000);
+                    list.push({ content, at: Date.now() });
+                    this._pendingUserMessages[uuid] = list;
+                },
+
+                // After a reload from the DB: put back sent messages the server has not saved yet
+                restorePendingUserMessages(uuid) {
+                    const pending = this._pendingUserMessages[uuid];
+                    if (!uuid || !pending?.length || uuid !== this.currentConversationUuid) return;
+                    const norm = (t) => String(t || '').trim();
+                    const stillPending = [];
+                    for (const p of pending) {
+                        if (Date.now() - p.at > 10 * 60 * 1000) continue; // give up after 10 minutes
+                        const saved = this.messages.some(m => m.role === 'user'
+                            && norm(m.content) === norm(p.content)
+                            && (!m.timestamp || new Date(m.timestamp).getTime() >= p.at - 120000));
+                        if (saved) continue;
+                        stillPending.push(p);
+                        this.messages.push({
+                            id: 'msg-pending-' + p.at,
+                            role: 'user',
+                            content: p.content,
+                            timestamp: new Date(p.at).toISOString(),
+                            collapsed: false,
+                        });
+                    }
+                    if (stillPending.length) {
+                        this._pendingUserMessages[uuid] = stillPending;
+                    } else {
+                        delete this._pendingUserMessages[uuid];
+                    }
+                },
+
+                async _loadMessagesFromStore(dbMessages, targetTurn = null, loadUuid = null) {
                     return this._messageStore?.loadMessagesProgressively(dbMessages, targetTurn, loadUuid, {
                         getCurrentUuid: () => this.currentConversationUuid,
                         nextTick: (fn) => this.$nextTick(fn),
@@ -6042,6 +6088,7 @@
                         timestamp: new Date().toISOString(),
                         collapsed: false
                     });
+                    this.rememberPendingUserMessage(this.currentConversationUuid, userPrompt);
                     this.autoScrollEnabled = true; // Re-enable auto-scroll on new message
                     this.scrollToBottom();
 

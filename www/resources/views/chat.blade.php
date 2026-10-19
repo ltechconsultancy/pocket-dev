@@ -1983,6 +1983,13 @@
                 _subagentFetchedAt: 0,
                 _subagentSessionId: null,
                 _subagentTick: 0,
+                // Full-history viewer of one sub-agent (partials/chat/subagent-viewer)
+                subagentViewer: { open: false, taskId: null, title: '', agent: '', status: '', streaming: false,
+                                  duration: 0, items: [], cursor: 0, loading: false, stick: true, _fetchedAt: 0 },
+                _subagentViewerTimer: null,
+                _svBlocks: {},
+                _svTools: {},
+                _svSeq: 0,
                 // Running sub-agents per session / chat tab (badges in sidebar + tab bar)
                 runningSubagents: { sessions: {}, conversations: {} },
                 // Claude Code Remote Control for the current chat (see RemoteControlService)
@@ -7250,6 +7257,129 @@
                         }
                     }
                     setTimeout(() => this.refreshRunningSubagents(), 10000);
+                },
+
+                // ----- Sub-agent viewer (full history, live) -----
+
+                openSubagentViewer(item) {
+                    clearTimeout(this._subagentViewerTimer);
+                    this.subagentViewer = { open: true, taskId: item.id, title: item.title, agent: item.agent, status: item.status,
+                                            streaming: false, duration: item.duration_seconds, items: [], cursor: 0,
+                                            loading: true, stick: true, _fetchedAt: Date.now() };
+                    this.loadSubagentEvents(true);
+                },
+
+                closeSubagentViewer() {
+                    clearTimeout(this._subagentViewerTimer);
+                    this.subagentViewer.open = false;
+                },
+
+                async loadSubagentEvents(reset = false) {
+                    clearTimeout(this._subagentViewerTimer);
+                    const v = this.subagentViewer;
+                    const taskId = v.taskId;
+                    if (!v.open || !taskId) return;
+                    if (reset) {
+                        v.items = []; v.cursor = 0;
+                        this._svBlocks = {}; this._svTools = {}; this._svSeq = 0;
+                    }
+                    let more = false;
+                    try {
+                        const response = await fetch(`/api/subagents/${taskId}/events?from=${v.cursor}`, { headers: { 'Accept': 'application/json' } });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const data = await response.json();
+                        if (taskId !== this.subagentViewer.taskId) return; // switched to another sub-agent
+                        const wasRunning = v.status === 'running' || v.status === 'pending';
+                        v.status = data.status; v.streaming = data.streaming; v.title = data.title; v.agent = data.agent;
+                        v.duration = data.duration_seconds; v._fetchedAt = Date.now();
+                        for (const event of data.events) this.applySubagentEvent(event);
+                        v.cursor = data.next;
+                        more = data.more;
+                        // Finished meanwhile: reload once from the DB (complete, incl. the last turn)
+                        if (wasRunning && !reset && !['running', 'pending'].includes(data.status)) {
+                            return this.loadSubagentEvents(true);
+                        }
+                    } catch (e) {
+                        // Network hiccup: retry on the next tick
+                    } finally {
+                        v.loading = false;
+                    }
+                    if (v.stick) this.$nextTick(() => { const el = this.$refs.subagentLog; if (el) el.scrollTop = el.scrollHeight; });
+                    if (v.open && (more || ['running', 'pending'].includes(v.status))) {
+                        this._subagentViewerTimer = setTimeout(() => this.loadSubagentEvents(), more ? 50 : 2000);
+                    }
+                },
+
+                // Build the timeline from (compact) stream events
+                applySubagentEvent(e) {
+                    const v = this.subagentViewer;
+                    const push = (item) => { item.key = ++this._svSeq; v.items.push(item); return v.items[v.items.length - 1]; };
+                    const type = e.type || '';
+                    const bi = e.block_index;
+                    if (type === 'user') {
+                        push({ kind: 'user', text: e.content || '', open: v.items.length > 0 });
+                    } else if (type === 'thinking_start' || type === 'text_start') {
+                        this._svBlocks[bi] = push({ kind: type === 'thinking_start' ? 'thinking' : 'text', text: '', open: false, done: false });
+                    } else if (type === 'thinking_delta' || type === 'text_delta') {
+                        const item = this._svBlocks[bi] || (this._svBlocks[bi] = push({ kind: type === 'thinking_delta' ? 'thinking' : 'text', text: '', open: false, done: false }));
+                        item.text += e.content || '';
+                    } else if (type === 'thinking_stop' || type === 'text_stop') {
+                        const item = this._svBlocks[bi];
+                        if (item) {
+                            item.done = true;
+                            // Redacted thinking (signature only): nothing to show
+                            if (item.kind === 'thinking' && !item.text.trim()) v.items.splice(v.items.indexOf(item), 1);
+                        }
+                    } else if (type === 'tool_use_start') {
+                        const item = push({ kind: 'tool', name: e.metadata?.tool_name || 'Tool', input: '', result: '', hasResult: false, isError: false, open: false });
+                        this._svBlocks[bi] = item;
+                        if (e.metadata?.tool_id) this._svTools[e.metadata.tool_id] = item;
+                    } else if (type === 'tool_use_delta') {
+                        const item = this._svBlocks[bi];
+                        if (item && item.kind === 'tool') item.input += e.content || '';
+                    } else if (type === 'tool_result') {
+                        const item = this._svTools[e.metadata?.tool_id];
+                        if (item) { item.result = e.content || ''; item.hasResult = true; item.isError = !!e.metadata?.is_error; }
+                    } else if (type === 'error') {
+                        push({ kind: 'end', text: 'Fout: ' + (e.metadata?.message || e.metadata?.error || e.content || 'onbekend'), error: true });
+                    } else if (type === 'done' && e.metadata?.stop_reason === 'aborted') {
+                        push({ kind: 'end', text: 'Gestopt', error: false });
+                    }
+                },
+
+                subagentViewerMeta() {
+                    this._subagentTick;
+                    const v = this.subagentViewer;
+                    const running = v.status === 'running' || v.status === 'pending';
+                    const seconds = v.duration + (running && v._fetchedAt ? (Date.now() - v._fetchedAt) / 1000 : 0);
+                    const label = { running: 'bezig', pending: 'start…', completed: 'klaar', failed: 'mislukt', cancelled: 'gestopt' }[v.status] || v.status;
+                    const tools = v.items.filter(i => i.kind === 'tool').length;
+                    return [v.agent, label + ' · ' + this.formatSubagentDuration(seconds), tools + ' tool-stappen'].join(' · ');
+                },
+
+                _toolInput(item) {
+                    try { return JSON.parse(item.input || '{}'); } catch (e) { return null; }
+                },
+
+                toolArgSummary(item) {
+                    const input = this._toolInput(item);
+                    if (!input) {
+                        const m = /"(?:file_path|path|command|pattern|url|query|description)"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(item.input || '');
+                        return m ? m[1] : '';
+                    }
+                    const path = input.file_path || input.path || input.notebook_path;
+                    if (path) return path.split('/').pop();
+                    let arg = input.command || input.pattern || input.url || input.query || input.description || input.prompt || '';
+                    // "cd /some/dir && real command" -> "real command"
+                    arg = String(arg).replace(/^\s*cd\s+\S+\s*&&\s*/, '');
+                    return arg.replace(/\s+/g, ' ').slice(0, 160);
+                },
+
+                toolInputPretty(item) {
+                    const input = this._toolInput(item);
+                    if (!input) return item.input || '';
+                    if (input.command && Object.keys(input).length <= 3) return input.command;
+                    return JSON.stringify(input, null, 2);
                 },
 
                 // Live-ticking duration of the longest-running sub-agent

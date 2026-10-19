@@ -55,12 +55,12 @@
                             </div>
 
                             <div class="flex items-center gap-1 shrink-0">
-                                <button type="button" x-show="item.steps.length"
-                                        @click="subagentOpen[item.id] = !subagentOpen[item.id]"
+                                <button type="button"
+                                        @click="openSubagentViewer(item)"
                                         class="rounded bg-gray-700 hover:bg-gray-600 text-gray-200 cursor-pointer"
                                         style="padding: 6px 9px; font-size: 12px;"
-                                        :title="subagentOpen[item.id] ? 'Minder tonen' : 'Live meekijken'">
-                                    <i class="fa-solid" :class="subagentOpen[item.id] ? 'fa-eye-slash' : 'fa-eye'"></i>
+                                        title="Volledige geschiedenis bekijken">
+                                    <i class="fa-solid fa-eye"></i>
                                 </button>
                                 <button type="button" x-show="item.status === 'running' || item.status === 'pending'"
                                         @click="cancelSubagent(item)"
@@ -74,7 +74,9 @@
 
                         {{-- Current activity (always), recent steps (expanded) --}}
                         <template x-if="item.steps.length">
-                            <div class="font-mono rounded-md mt-2"
+                            <div class="font-mono rounded-md mt-2 cursor-pointer"
+                                 @click="subagentOpen[item.id] = !subagentOpen[item.id]"
+                                 :title="subagentOpen[item.id] ? 'Minder tonen' : 'Laatste stappen tonen'"
                                  style="margin-left: 46px; background: #0b1220; padding: 6px 8px; font-size: 11.5px; line-height: 1.7;">
                                 <template x-for="(step, i) in (subagentOpen[item.id] ? item.steps : item.steps.slice(0, 1))" :key="i">
                                     <div class="truncate" :style="{ color: step.done ? '#6b7280' : '#93c5fd' }">
@@ -93,3 +95,5 @@
         </div>
     </div>
 </template>
+
+@include('partials.chat.subagent-viewer')

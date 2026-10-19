@@ -35,6 +35,14 @@ class SubAgentMonitorController extends Controller
     }
 
     /**
+     * Full history (thinking, text, tool calls + results) for the viewer.
+     */
+    public function events(\Illuminate\Http\Request $request, SubAgentTask $task, SubAgentMonitor $monitor): JsonResponse
+    {
+        return response()->json($monitor->events($task, max(0, (int) $request->query('from', 0))));
+    }
+
+    /**
      * Stop a sub-agent from the UI (the user may stop any of them).
      */
     public function cancel(SubAgentTask $task): JsonResponse

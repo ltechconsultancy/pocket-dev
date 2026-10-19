@@ -419,6 +419,7 @@ Route::prefix('api')->group(function () {
     Route::get('subagents/running', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'running']);
     Route::get('sessions/{session}/subagents', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'index']);
     Route::post('subagents/{task}/cancel', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'cancel']);
+    Route::get('subagents/{task}/events', [\App\Http\Controllers\Api\SubAgentMonitorController::class, 'events']);
 
     // App Tray (link tiles added by agents via `pd app-tray`)
     Route::get('app-tray', [\App\Http\Controllers\Api\AppTrayController::class, 'index']);

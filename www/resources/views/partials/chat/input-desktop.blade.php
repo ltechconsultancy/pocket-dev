@@ -1,5 +1,6 @@
 {{-- Desktop Input Form --}}
 <div class="js-chat-input border-t border-gray-700 p-3 bg-gray-800">
+    @include('partials.chat.subagent-pill', ['wrapperClass' => 'mb-2'])
     <div x-show="queuedFollowUps.length > 0 && getScreen(activeScreenId)?.type === 'chat'" class="mb-2 flex flex-col gap-1">
         <div class="text-[11px] text-amber-400/80" x-text="isStreaming ? 'Queued — sends after current tool' : 'Queued — tap Send to deliver'"></div>
         <template x-for="item in queuedFollowUps" :key="item.id">

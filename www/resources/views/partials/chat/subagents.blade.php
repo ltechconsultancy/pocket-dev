@@ -1,39 +1,6 @@
-{{-- Sub-agents of this session: pill above the input while any run, tap for a sheet
-     with live activity, stop and status. Data: GET /api/sessions/{id}/subagents (polled). --}}
-
-{{-- Pill --}}
-<button type="button"
-        x-show="currentSession && (subagents.running > 0 || subagentFlash)" x-cloak
-        x-transition.opacity
-        @click="showSubagentSheet = true; refreshSubagents()"
-        class="fixed flex items-center gap-2 rounded-full text-sm cursor-pointer"
-        :style="{
-            bottom: ((windowWidth >= 768 ? desktopInputHeight : mobileInputHeight) + 10) + 'px',
-            left: windowWidth >= 768 ? '272px' : '12px',
-            zIndex: 30,
-            padding: '7px 12px',
-            boxShadow: '0 4px 14px rgba(0,0,0,.45)',
-            background: subagents.running > 0 ? '#1e1b4b' : '#022c22',
-            border: '1px solid ' + (subagents.running > 0 ? '#4338ca' : '#065f46'),
-            color: subagents.running > 0 ? '#e0e7ff' : '#d1fae5'
-        }"
-        title="Sub-agents van deze sessie">
-    <template x-if="subagents.running > 0">
-        <span class="flex items-center gap-2">
-            <x-spinner class="!w-3 !h-3" style="color: #a5b4fc;" />
-            <i class="fa-solid fa-robot" style="color: #a5b4fc;"></i>
-            <b x-text="subagents.running + (subagents.running === 1 ? ' sub-agent actief' : ' sub-agents actief')"></b>
-            <span style="color: #a5b4fc;" x-text="'· ' + formatSubagentDuration(longestRunningSeconds())"></span>
-            <i class="fa-solid fa-chevron-up" style="color: #818cf8; font-size: 11px;"></i>
-        </span>
-    </template>
-    <template x-if="subagents.running === 0">
-        <span class="flex items-center gap-2">
-            <i class="fa-solid fa-check" style="color: #6ee7b7;"></i>
-            <b>Sub-agent klaar</b>
-        </span>
-    </template>
-</button>
+{{-- Sub-agents of this session: sheet with live activity, stop and status.
+     The pill that opens it lives in the input bars (partials/chat/subagent-pill).
+     Data: GET /api/sessions/{id}/subagents (polled). --}}
 
 {{-- Sheet: bottom sheet on mobile, centered panel on desktop --}}
 <template x-teleport="body">

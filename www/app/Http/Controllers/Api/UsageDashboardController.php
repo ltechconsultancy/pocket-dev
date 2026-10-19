@@ -38,6 +38,12 @@ class UsageDashboardController extends Controller
         'composer-2-fast' => 'claude-sonnet-4-6',
     ];
 
+    /** CLI providers shown on the usage dashboard. */
+    private const CLI_PROVIDERS = ['claude_code', 'codex', 'cursor_agent', 'opencode'];
+
+    /** OpenCode Go subscription price (USD/month), to judge whether it pays off. */
+    private const OPENCODE_GO_PRICE = 10.0;
+
     public function __construct(
         private ClaudeCodeUsageService $claudeUsage,
         private CursorUsageService $cursorUsage,
@@ -52,12 +58,12 @@ class UsageDashboardController extends Controller
     {
         $days = min(max((int) $request->query('days', 14), 1), 90);
 
-        $cacheKey = "usage_summary_v3_{$days}";
+        $cacheKey = "usage_summary_v4_{$days}";
 
         $data = Cache::remember($cacheKey, 60, function () use ($days) {
             $rows = DB::table('messages as m')
                 ->join('conversations as c', 'm.conversation_id', '=', 'c.id')
-                ->whereIn('c.provider_type', ['claude_code', 'codex', 'cursor_agent'])
+                ->whereIn('c.provider_type', self::CLI_PROVIDERS)
                 ->where('m.created_at', '>=', now()->subDays($days))
                 ->whereNotNull('m.input_tokens')
                 ->selectRaw("
@@ -68,6 +74,7 @@ class UsageDashboardController extends Controller
                     SUM(COALESCE(m.output_tokens, 0)) as output_tokens,
                     SUM(COALESCE(m.cache_creation_tokens, 0)) as cache_creation_tokens,
                     SUM(COALESCE(m.cache_read_tokens, 0)) as cache_read_tokens,
+                    SUM(COALESCE(m.cost, 0)) as stored_cost,
                     COUNT(DISTINCT c.id) as conversations
                 ")
                 ->groupBy('c.provider_type', 'm.model', DB::raw('DATE(m.created_at)'))
@@ -80,6 +87,12 @@ class UsageDashboardController extends Controller
                 $out = (int) $row->output_tokens;
                 $cw = (int) $row->cache_creation_tokens;
                 $cr = (int) $row->cache_read_tokens;
+                if ($row->provider_type === 'opencode') {
+                    // OpenCode reports the API value per message itself (models are not in our pricing)
+                    $row->api_equiv_cost = (float) $row->stored_cost;
+                    $row->full_price_cost = (float) $row->stored_cost;
+                    return $row;
+                }
                 $row->api_equiv_cost = $this->computeApiEquivCost($row->model, $in, $out, $cw, $cr);
                 // Full price: all input tokens at base rate (no cache discount)
                 $row->full_price_cost = $this->computeApiEquivCost($row->model, $in, $out, 0, 0);
@@ -91,7 +104,7 @@ class UsageDashboardController extends Controller
             // days/models must not be counted more than once).
             $convRows = DB::table('messages as m')
                 ->join('conversations as c', 'm.conversation_id', '=', 'c.id')
-                ->whereIn('c.provider_type', ['claude_code', 'codex', 'cursor_agent'])
+                ->whereIn('c.provider_type', self::CLI_PROVIDERS)
                 ->where('m.created_at', '>=', now()->subDays($days))
                 ->whereNotNull('m.input_tokens')
                 ->selectRaw("
@@ -140,7 +153,7 @@ class UsageDashboardController extends Controller
             // Build per-provider summary
             $byProvider = [];
 
-            foreach (['claude_code', 'codex', 'cursor_agent'] as $provider) {
+            foreach (self::CLI_PROVIDERS as $provider) {
                 $pr = $rows->where('provider_type', $provider);
                 $cr = $convRows->where('provider_type', $provider);
                 $byProvider[$provider] = [
@@ -157,6 +170,7 @@ class UsageDashboardController extends Controller
             $convWeek = $convRows->where('date', '>=', $weekAgo);
 
             return [
+                'opencode_value' => $this->openCodeValue(),
                 'by_day' => $byDay,
                 'by_model' => $byModel,
                 'by_provider' => $byProvider,
@@ -298,5 +312,45 @@ class UsageDashboardController extends Controller
             return str_replace(' (via CLI)', '', $model['display_name']);
         }
         return ucfirst(str_replace(['-', '_'], ' ', $modelId));
+    }
+
+    /**
+     * Is the OpenCode Go subscription worth it? API value of this calendar month
+     * (OpenCode's own per-message cost) vs the subscription price, plus a projection.
+     */
+    private function openCodeValue(): array
+    {
+        $start = now()->startOfMonth();
+        $rows = DB::table('messages as m')
+            ->join('conversations as c', 'm.conversation_id', '=', 'c.id')
+            ->where('c.provider_type', 'opencode')
+            ->where('m.created_at', '>=', $start)
+            ->whereNotNull('m.input_tokens')
+            ->selectRaw("COALESCE(m.model, c.model, 'unknown') as model, SUM(COALESCE(m.cost, 0)) as cost, SUM(COALESCE(m.input_tokens, 0) + COALESCE(m.output_tokens, 0)) as tokens, COUNT(*) as replies")
+            ->groupBy(DB::raw("COALESCE(m.model, c.model, 'unknown')"))
+            ->orderByDesc('cost')
+            ->get();
+
+        $cost = (float) $rows->sum('cost');
+        $elapsedDays = max(1, (int) floor($start->diffInDays(now())) + 1);
+        $monthDays = now()->daysInMonth;
+        $projected = $cost / $elapsedDays * $monthDays;
+
+        return [
+            'subscription' => self::OPENCODE_GO_PRICE,
+            'month' => now()->locale('nl')->isoFormat('MMMM YYYY'),
+            'month_cost' => round($cost, 4),
+            'projected_cost' => round($projected, 2),
+            'elapsed_days' => (int) $elapsedDays,
+            'month_days' => (int) $monthDays,
+            'replies' => (int) $rows->sum('replies'),
+            'tokens' => (int) $rows->sum('tokens'),
+            'by_model' => $rows->map(fn ($r) => [
+                'model' => $r->model,
+                'cost' => round((float) $r->cost, 4),
+                'tokens' => (int) $r->tokens,
+                'replies' => (int) $r->replies,
+            ])->values(),
+        ];
     }
 }

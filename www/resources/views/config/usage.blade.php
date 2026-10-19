@@ -91,8 +91,8 @@
     {{-- ============================================================ --}}
     {{-- PROVIDER CARDS                                               --}}
     {{-- ============================================================ --}}
-    <div x-show="summary" x-cloak class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <template x-for="p in ['claude_code', 'codex', 'cursor_agent']" :key="p">
+    <div x-show="summary" x-cloak class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <template x-for="p in ['claude_code', 'codex', 'cursor_agent', 'opencode']" :key="p">
             <div class="bg-gray-800/50 border rounded-lg p-4 cursor-pointer transition-all"
                  :class="filterProvider === p ? 'border-blue-500 ring-1 ring-blue-500/30' : 'border-gray-700 hover:border-gray-600'"
                  @click="toggleProvider(p)">
@@ -120,6 +120,56 @@
                         </div>
                     </div>
                 </div>
+            </div>
+        </template>
+    </div>
+
+    {{-- ============================================================ --}}
+    {{-- OPENCODE GO: IS THE SUBSCRIPTION WORTH IT?                    --}}
+    {{-- ============================================================ --}}
+    <div x-show="summary" x-cloak class="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
+>
+        <h3 class="text-sm font-medium text-gray-200 mb-1">
+            <i class="fa-solid fa-scale-balanced mr-1 text-rose-400"></i> OpenCode Go: is het abonnement het waard?
+        </h3>
+        <p class="text-xs text-gray-500 mb-3">API-waarde volgens OpenCode zelf (wat je bij gewone API-prijzen had betaald) tegenover het abonnement van $<span x-text="ocv()?.subscription ?? 10"></span>/maand.</p>
+        <template x-if="ocv()">
+            <div class="space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                    <div>
+                        <div class="text-xs text-gray-500" x-text="'Waarde ' + ocv().month"></div>
+                        <div class="font-mono text-lg text-gray-100" x-text="'$' + ocv().month_cost.toFixed(2)"></div>
+                        <div class="text-xs text-gray-500" x-text="ocv().replies + ' antwoorden · ' + fmt(ocv().tokens) + ' tokens'"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500" x-text="'Prognose hele maand (dag ' + ocv().elapsed_days + '/' + ocv().month_days + ')'"></div>
+                        <div class="font-mono text-lg text-gray-100" x-text="'$' + ocv().projected_cost.toFixed(2)"></div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500">Oordeel</div>
+                        <div class="text-lg font-semibold"
+                             :class="ocv().projected_cost >= ocv().subscription ? 'text-emerald-400' : 'text-amber-400'"
+                             x-text="ocv().projected_cost >= ocv().subscription
+                                ? (ocv().projected_cost / ocv().subscription).toFixed(1) + '× terugverdiend'
+                                : 'Nog niet: ' + Math.round(ocv().projected_cost / ocv().subscription * 100) + '% van $' + ocv().subscription"></div>
+                    </div>
+                </div>
+                <div class="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-500"
+                         :class="ocv().month_cost >= ocv().subscription ? 'bg-emerald-500' : 'bg-amber-500'"
+                         :style="'width:' + Math.min(100, ocv().month_cost / ocv().subscription * 100) + '%'"></div>
+                </div>
+                <template x-if="ocv().by_model.length">
+                    <div class="text-xs space-y-1">
+                        <template x-for="m in ocv().by_model" :key="m.model">
+                            <div class="flex justify-between gap-3">
+                                <span class="text-gray-400 truncate" x-text="m.model"></span>
+                                <span class="font-mono text-gray-300 shrink-0" x-text="'$' + m.cost.toFixed(2) + ' · ' + m.replies + '× · ' + fmt(m.tokens)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+                <p class="text-xs text-gray-500">Let op: de Go-limieten ($12 per 5 uur, $30 per week, $60 per maand) worden ook in deze API-waarde gemeten.</p>
             </div>
         </template>
     </div>
@@ -660,8 +710,10 @@ function usageDashboard() {
         barBgColor(pct)  { return pct >= 80 ? 'bg-red-500' : pct >= 60 ? 'bg-amber-500' : 'bg-emerald-500'; },
         barTextColor(pct) { return pct >= 80 ? 'text-red-400' : pct >= 60 ? 'text-amber-400' : 'text-emerald-400'; },
 
-        providerName(p) { return { claude_code: 'Claude Code', codex: 'Codex', cursor_agent: 'Cursor' }[p] || p; },
-        providerColor(p) { return { claude_code: 'bg-purple-500', codex: 'bg-blue-500', cursor_agent: 'bg-emerald-500' }[p] || 'bg-gray-500'; },
+        providerName(p) { return { claude_code: 'Claude Code', codex: 'Codex', cursor_agent: 'Cursor', opencode: 'OpenCode Go' }[p] || p; },
+        providerColor(p) { return { claude_code: 'bg-purple-500', codex: 'bg-blue-500', cursor_agent: 'bg-emerald-500', opencode: 'bg-rose-500' }[p] || 'bg-gray-500'; },
+
+        ocv() { return this.summary?.opencode_value || null; },
 
         getStat(provider, period, key) {
             return this.summary?.by_provider?.[provider]?.[period]?.[key] || 0;

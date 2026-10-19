@@ -537,6 +537,11 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
                         );
                     }
                     $turnCost = $cost;
+                } elseif (is_numeric($event->metadata['cost'] ?? null) && (float) $event->metadata['cost'] > 0) {
+                    // No pricing in config (e.g. OpenCode Go models): use the cost the provider
+                    // reports for this run (OpenCode: API value, which is what Go limits meter)
+                    $cost = (float) $event->metadata['cost'];
+                    $turnCost = $cost;
                 }
 
                 // Emit enriched usage event with cost and context info

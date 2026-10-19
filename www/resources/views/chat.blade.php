@@ -1937,7 +1937,7 @@
                     const activeUuid = this.activeChatConversationUuid();
                     if (!streamUuid || !activeUuid || streamUuid !== activeUuid) return false;
                     const provider = this.conversationProvider || this.provider || this.currentAgent?.provider;
-                    return provider === 'cursor_agent' || provider === 'claude_code';
+                    return provider === 'cursor_agent' || provider === 'claude_code' || provider === 'opencode';
                 },
                 get _streamState() { return this._streamStore?._streamState ?? {}; },
                 set _streamState(val) { if (this._streamStore) this._streamStore._streamState = val; },

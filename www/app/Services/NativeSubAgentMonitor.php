@@ -15,13 +15,16 @@ use Illuminate\Support\Str;
  * Data comes from Claude Code's transcripts via scripts/native-subagents.php, which
  * must run as appuser (the files are 0600). Status:
  * - completed: the transcript ended its turn
- * - running:   not finished and the parent chat is still processing
- * - cancelled: not finished and the parent chat stopped (native agents die with their turn)
+ * - running:   not finished, the parent chat is processing and the transcript changed < 15 min ago
+ * - cancelled: otherwise (native agents die with their turn; old ones are never written again)
  * PocketDev can't stop them, so they have no stop button.
  */
 class NativeSubAgentMonitor
 {
     private const FINISHED_WINDOW_MINUTES = 120;
+
+    /** An unfinished agent counts as running only if its transcript changed this recently. */
+    private const ACTIVE_WINDOW_MINUTES = 15;
 
     /**
      * Presented items (same shape as SubAgentMonitor::present) for these parent chats.
@@ -104,10 +107,15 @@ class NativeSubAgentMonitor
     private function present(Conversation $conversation, array $agent): array
     {
         $finished = (bool) $agent['finished'];
-        $status = $finished ? 'completed'
-            : ($conversation->status === Conversation::STATUS_PROCESSING ? 'running' : 'cancelled');
         $started = $agent['started_at'] ? Carbon::parse($agent['started_at']) : now();
         $lastAt = $agent['last_at'] ? Carbon::parse($agent['last_at']) : now();
+        $modifiedAt = !empty($agent['modified_at']) ? Carbon::parse($agent['modified_at']) : $lastAt;
+        // Running = parent chat busy AND the transcript is still being written. Unfinished agents
+        // of earlier turns died with their turn and never get written again (else they would all
+        // count as running whenever the chat answers something new).
+        $active = $conversation->status === Conversation::STATUS_PROCESSING
+            && $modifiedAt->max($lastAt)->gt(now()->subMinutes(self::ACTIVE_WINDOW_MINUTES));
+        $status = $finished ? 'completed' : ($active ? 'running' : 'cancelled');
         $end = $status === 'running' ? now() : $lastAt;
 
         $steps = [];

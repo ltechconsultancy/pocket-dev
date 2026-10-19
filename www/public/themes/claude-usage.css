@@ -1,0 +1,28 @@
+/* Claude usage rings + popover (partials/chat/claude-usage).
+ * Color follows the percentage of each window (outer ring = week, inner = 5 hours):
+ *   cu-ok < 50%  ·  cu-mid 50-79%  ·  cu-warn 80-94%  ·  cu-crit >= 95%
+ * Classic first; brutalism overrides at the bottom. */
+
+.cu-track { stroke: rgba(255, 255, 255, .13); }
+.cu-ring { transition: stroke-dashoffset .6s ease, stroke .3s; }
+.cu-bar-track { background: rgba(255, 255, 255, .1); }
+.cu-bar { transition: width .6s ease; }
+
+.cu-ok   { --cu: #22c55e; }
+.cu-mid  { --cu: #eab308; }
+.cu-warn { --cu: #f97316; }
+.cu-crit { --cu: #ef4444; }
+.cu-ring { stroke: var(--cu, #22c55e); }
+.cu-bar { background: var(--cu, #22c55e); }
+.cu-pct { color: var(--cu, inherit); }
+
+html[data-theme^="brutal"] .cu-track { stroke: var(--b-soft-2); }
+html[data-theme^="brutal"] .cu-ring { stroke-linecap: butt; }
+html[data-theme^="brutal"] .cu-bar-track, html[data-theme^="brutal"] .cu-bar { border-radius: 0; }
+html[data-theme^="brutal"] .cu-ok   { --cu: var(--b-green); }
+html[data-theme^="brutal"] .cu-mid  { --cu: var(--b-yellow); }
+html[data-theme^="brutal"] .cu-warn { --cu: #ff8a00; }
+html[data-theme^="brutal"] .cu-crit { --cu: var(--b-red); }
+/* Light: bright green/yellow need more weight on white */
+html[data-theme="brutal-light"] .cu-ok  { --cu: #00b347; }
+html[data-theme="brutal-light"] .cu-mid { --cu: #d9a400; }

@@ -40,8 +40,9 @@
             <x-chat.context-progress :compact="true" />
         </div>
     </div>
-    {{-- Conversation Menu (⋮) + App Tray (⊞, where the gear used to be) --}}
+    {{-- Claude usage rings + Conversation Menu (⋮) + App Tray (⊞, where the gear used to be) --}}
     <div class="relative flex items-center">
+        @include('partials.chat.claude-usage')
         <button @click="showConversationMenu = !showConversationMenu"
                 @keydown.escape="showConversationMenu = false"
                 :aria-expanded="showConversationMenu"

@@ -367,14 +367,22 @@
                 Debug Log
             </button>
             {{-- PWA install (only when Chrome reports the app as installable) --}}
-            <button x-data="{ installable: !!window.pwaInstallPrompt }"
-                    x-show="installable" x-cloak
-                    @pwa-installable.window="installable = true"
-                    @pwa-installed.window="installable = false"
-                    @click="window.pwaInstall(); showMobileDrawer = false"
-                    class="text-blue-400 hover:text-blue-300 cursor-pointer">
-                <i class="fa-solid fa-download mr-1"></i>App installeren
-            </button>
+            <span x-data="{ installable: !!window.pwaInstallPrompt, standalone: window.pwaIsStandalone(), updating: false }" class="contents">
+                <button x-show="installable && !standalone" x-cloak
+                        @pwa-installable.window="installable = true"
+                        @pwa-installed.window="installable = false"
+                        @click="window.pwaInstall(); showMobileDrawer = false"
+                        class="text-blue-400 hover:text-blue-300 cursor-pointer">
+                    <i class="fa-solid fa-download mr-1"></i>App installeren
+                </button>
+                {{-- Installed app: fetch the newest version (code, icon, splash) --}}
+                <button x-show="standalone" x-cloak
+                        @click="updating = true; window.pwaUpdate()"
+                        x-bind:disabled="updating"
+                        class="text-blue-400 hover:text-blue-300 cursor-pointer">
+                    <i class="fa-solid fa-rotate mr-1" :class="updating && 'fa-spin'"></i><span x-text="updating ? 'Bijwerken…' : 'App bijwerken'"></span>
+                </button>
+            </span>
         </div>
     </div>
 </div>

@@ -60,6 +60,26 @@
         window.pwaInstallPrompt = null;
         window.dispatchEvent(new CustomEvent('pwa-installed'));
     });
+    // Running as the installed app (Android/desktop standalone, iOS home screen)
+    window.pwaIsStandalone = () =>
+        window.matchMedia('(display-mode: standalone)').matches
+        || window.matchMedia('(display-mode: window-controls-overlay)').matches
+        || window.navigator.standalone === true;
+    // "App bijwerken": newest service worker, empty caches, fresh manifest + icons, reload.
+    // Android re-checks the manifest on the next launch and updates icon/splash
+    // (icon URLs are versioned in manifest.json); iOS only updates them on reinstall.
+    window.pwaUpdate = async () => {
+        try {
+            const reg = await navigator.serviceWorker?.getRegistration();
+            if (reg) await reg.update();
+            if (window.caches) {
+                for (const key of await caches.keys()) await caches.delete(key);
+            }
+            const manifest = await fetch('/manifest.json', { cache: 'reload' }).then(r => r.json());
+            await Promise.all((manifest.icons || []).map(i => fetch(i.src, { cache: 'reload' }).catch(() => {})));
+        } catch (e) { /* reload anyway */ }
+        window.location.reload();
+    };
     window.pwaInstall = async () => {
         const prompt = window.pwaInstallPrompt;
         if (!prompt) return false;

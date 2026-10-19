@@ -45,14 +45,13 @@
                 </span>
                 {{-- Screen Tab Label (short form) --}}
                 <span class="truncate" x-text="getScreenTabLabel(screenId)"></span>
-                {{-- Running sub-agents started from this chat --}}
-                <span x-show="(runningSubagents.conversations[getScreen(screenId)?.conversation?.uuid] || 0) > 0" x-cloak
-                          class="inline-flex items-center gap-1 rounded-full shrink-0"
-                          style="padding: 1px 6px; font-size: 10px; background: #312e81; color: #c7d2fe; border: 1px solid #4338ca;"
-                          :title="'Sub-agents actief vanuit deze chat'">
-                        <i class="fa-solid fa-robot animate-pulse"></i><span x-text="runningSubagents.conversations[getScreen(screenId)?.conversation?.uuid]"></span>
-                    </span>
             </button>
+            {{-- Running sub-agents started from this chat: corner badge, so the tab title keeps its room --}}
+            <span x-show="(runningSubagents.conversations[getScreen(screenId)?.conversation?.uuid] || 0) > 0" x-cloak
+                  class="sa-badge sa-tab-badge absolute inline-flex items-center gap-1 rounded-full pointer-events-none"
+                  :title="'Sub-agents actief vanuit deze chat'">
+                <i class="fa-solid fa-robot animate-pulse"></i><span x-text="runningSubagents.conversations[getScreen(screenId)?.conversation?.uuid]"></span>
+            </span>
             {{-- Archive/Close Button --}}
             {{-- Mobile: visible only on active tab to prevent accidental misclicks --}}
             {{-- Desktop: visible on hover for any tab --}}

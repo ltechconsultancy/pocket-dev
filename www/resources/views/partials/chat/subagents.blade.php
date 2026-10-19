@@ -10,10 +10,10 @@
          :style="{ zIndex: 60, alignItems: windowWidth >= 768 ? 'center' : 'flex-end' }">
         <div class="absolute inset-0" style="background: rgba(0,0,0,.55);" @click="showSubagentSheet = false"></div>
 
-        <div class="relative w-full bg-gray-800 border-gray-600 overflow-hidden flex flex-col"
+        <div class="sa-sheet relative w-full bg-gray-800 overflow-hidden flex flex-col"
              :style="windowWidth >= 768
-                ? 'border: 1px solid; border-color: #4b5563; border-radius: 12px; max-height: 80vh; max-width: 512px;'
-                : 'border-top: 1px solid #4b5563; border-radius: 16px 16px 0 0; max-height: 80vh;'"
+                ? 'border-width: 1px; border-style: solid; border-radius: 12px; max-height: 80vh; max-width: 512px;'
+                : 'border-top-width: 1px; border-top-style: solid; border-radius: 16px 16px 0 0; max-height: 80vh;'"
              x-transition:enter="transition ease-out duration-200"
              x-transition:enter-start="opacity-0 translate-y-4"
              x-transition:enter-end="opacity-100 translate-y-0">
@@ -38,15 +38,13 @@
                     <div class="px-4 py-3 border-t border-gray-700">
                         <div class="flex items-center gap-3">
                             {{-- Status icon --}}
-                            <span class="flex items-center justify-center shrink-0"
-                                  style="width: 34px; height: 34px; border-radius: 10px;"
-                                  :style="{ background: { running: '#4338ca', pending: '#4338ca', completed: '#065f46', failed: '#7f1d1d', cancelled: '#374151' }[item.status] }">
+                            <span class="sa-status flex items-center justify-center shrink-0" :class="'sa-status-' + item.status">
                                 <template x-if="item.status === 'running' || item.status === 'pending'">
-                                    <x-spinner class="!w-4 !h-4 text-white" />
+                                    <x-spinner class="!w-4 !h-4" />
                                 </template>
-                                <i x-show="item.status === 'completed'" class="fa-solid fa-check" style="color: #6ee7b7;"></i>
-                                <i x-show="item.status === 'failed'" class="fa-solid fa-triangle-exclamation" style="color: #fca5a5;"></i>
-                                <i x-show="item.status === 'cancelled'" class="fa-solid fa-stop text-gray-300"></i>
+                                <i x-show="item.status === 'completed'" class="fa-solid fa-check"></i>
+                                <i x-show="item.status === 'failed'" class="fa-solid fa-triangle-exclamation"></i>
+                                <i x-show="item.status === 'cancelled'" class="fa-solid fa-stop"></i>
                             </span>
 
                             <div class="min-w-0 flex-1">
@@ -57,15 +55,13 @@
                             <div class="flex items-center gap-1 shrink-0">
                                 <button type="button"
                                         @click="openSubagentViewer(item)"
-                                        class="rounded bg-gray-700 hover:bg-gray-600 text-gray-200 cursor-pointer"
-                                        style="padding: 6px 9px; font-size: 12px;"
+                                        class="sa-iconbtn rounded bg-gray-700 hover:bg-gray-600 text-gray-200 cursor-pointer"
                                         title="Volledige geschiedenis bekijken">
                                     <i class="fa-solid fa-eye"></i>
                                 </button>
                                 <button type="button" x-show="item.status === 'running' || item.status === 'pending'"
                                         @click="cancelSubagent(item)"
-                                        class="rounded bg-gray-700 hover:bg-gray-600 cursor-pointer"
-                                        style="padding: 6px 9px; font-size: 12px; color: #fca5a5;"
+                                        class="sa-iconbtn sa-stop rounded bg-gray-700 hover:bg-gray-600 cursor-pointer"
                                         title="Stoppen">
                                     <i class="fa-solid fa-stop"></i>
                                 </button>
@@ -74,21 +70,19 @@
 
                         {{-- Current activity (always), recent steps (expanded) --}}
                         <template x-if="item.steps.length">
-                            <div class="font-mono rounded-md mt-2 cursor-pointer"
+                            <div class="sa-log font-mono rounded-md mt-2 cursor-pointer"
                                  @click="subagentOpen[item.id] = !subagentOpen[item.id]"
-                                 :title="subagentOpen[item.id] ? 'Minder tonen' : 'Laatste stappen tonen'"
-                                 style="margin-left: 46px; background: #0b1220; padding: 6px 8px; font-size: 11.5px; line-height: 1.7;">
+                                 :title="subagentOpen[item.id] ? 'Minder tonen' : 'Laatste stappen tonen'">
                                 <template x-for="(step, i) in (subagentOpen[item.id] ? item.steps : item.steps.slice(0, 1))" :key="i">
-                                    <div class="truncate" :style="{ color: step.done ? '#6b7280' : '#93c5fd' }">
-                                        <i class="fa-solid" :class="step.done ? 'fa-check' : 'fa-angle-right'"
-                                           :style="{ color: step.done ? '#10b981' : '#6b7280', width: '14px' }"></i>
+                                    <div class="sa-step truncate" :class="step.done ? 'sa-done-step' : 'sa-active'">
+                                        <i class="fa-solid" :class="step.done ? 'fa-check' : 'fa-angle-right'"></i>
                                         <span x-text="step.label"></span>
                                     </div>
                                 </template>
                             </div>
                         </template>
 
-                        <div x-show="item.error" class="text-xs mt-2" style="margin-left: 46px; color: #fca5a5;" x-text="item.error"></div>
+                        <div x-show="item.error" class="sa-error text-xs mt-2" x-text="item.error"></div>
                     </div>
                 </template>
             </div>

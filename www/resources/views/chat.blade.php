@@ -7407,6 +7407,7 @@
                 openSubagentViewer(item) {
                     clearTimeout(this._subagentViewerTimer);
                     this.subagentViewer = { open: true, taskId: item.id, title: item.title, agent: item.agent, status: item.status,
+                                            native: !!item.native, eventsUrl: item.events_url || null,
                                             streaming: false, duration: item.duration_seconds, items: [], cursor: 0,
                                             loading: true, stick: true, _fetchedAt: Date.now() };
                     this.loadSubagentEvents(true);
@@ -7428,7 +7429,8 @@
                     }
                     let more = false;
                     try {
-                        const response = await fetch(`/api/subagents/${taskId}/events?from=${v.cursor}`, { headers: { 'Accept': 'application/json' } });
+                        const url = (v.eventsUrl || `/api/subagents/${taskId}/events`) + `?from=${v.cursor}`;
+                        const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
                         if (!response.ok) throw new Error(`HTTP ${response.status}`);
                         const data = await response.json();
                         if (taskId !== this.subagentViewer.taskId) return; // switched to another sub-agent

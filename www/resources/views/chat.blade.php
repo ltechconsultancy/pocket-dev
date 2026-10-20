@@ -316,9 +316,18 @@
                         }
                     },
 
+                    // Download without leaving the app: a same-origin link with the download
+                    // attribute (the server sends Content-Disposition: attachment). window.open
+                    // opened an extra browser window without a back button in the PWA.
                     downloadFile() {
                         if (!this.path) return;
-                        window.open('/api/file/download?path=' + encodeURIComponent(this.path), '_blank', 'noopener,noreferrer');
+                        const a = document.createElement('a');
+                        a.href = '/api/file/download?path=' + encodeURIComponent(this.path);
+                        a.download = this.path.split('/').pop() || 'download';
+                        a.style.display = 'none';
+                        document.body.appendChild(a);
+                        a.click();
+                        setTimeout(() => a.remove(), 1000);
                     },
 
                     async copyContent() {

@@ -74,3 +74,27 @@ Schedule::command('processes:cleanup-orphaned')
     ->everyThirtyMinutes()
     ->withoutOverlapping()
     ->runInBackground();
+
+/*
+|--------------------------------------------------------------------------
+| Disk cleanup (StorageJanitor)
+|--------------------------------------------------------------------------
+|
+| Daily: /tmp work dirs untouched for 7 days, PocketDev logs (conversation
+| stream logs 14 d, request-flow 7 d), oversized package caches.
+| Weekly: stopped containers (never pocket-dev-*) and unused images.
+| Never: chat uploads, conversations, project folders, anything in use.
+| The disk guard (warn/critical + restarting FATAL workers) is NOT scheduled
+| here: the host's pd-disk-guard timer runs `artisan storage:guard`.
+|
+*/
+
+Schedule::command('storage:cleanup')
+    ->dailyAt('04:30')
+    ->withoutOverlapping()
+    ->runInBackground();
+
+Schedule::command('storage:cleanup --only=docker')
+    ->weeklyOn(0, '05:00')
+    ->withoutOverlapping()
+    ->runInBackground();

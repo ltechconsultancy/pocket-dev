@@ -342,6 +342,8 @@ class SubAgentMonitor
 
         return [
             'id' => $task->id,
+            // Chat tab this sub-agent belongs to (top of the chain), so the pill shows it per tab
+            'chat_uuid' => $this->topChatOf((string) $task->parent_conversation_uuid)[0],
             'title' => $this->title((string) $task->prompt),
             'agent' => $task->agent?->name ?? 'Sub-agent',
             'status' => $status,

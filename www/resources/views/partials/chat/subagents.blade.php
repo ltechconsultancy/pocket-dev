@@ -22,7 +22,7 @@
                 <b class="text-base text-gray-100">Sub-agents</b>
                 <div class="flex items-center gap-3">
                     <span class="text-xs text-gray-400"
-                          x-text="subagents.running + ' actief · ' + (subagents.items.length - subagents.running) + ' klaar'"></span>
+                          x-text="tabSubagents.running + ' actief · ' + (tabSubagents.items.length - tabSubagents.running) + ' klaar'"></span>
                     <button type="button" @click="showSubagentSheet = false" class="text-gray-400 hover:text-white p-1 cursor-pointer" title="Sluiten">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
@@ -30,11 +30,13 @@
             </div>
 
             <div class="overflow-y-auto pb-3">
-                <div x-show="subagents.items.length === 0" class="text-center text-sm text-gray-400 py-8">
-                    Geen sub-agents in deze sessie (afgelopen 2 uur).
+                <div x-show="tabSubagents.items.length === 0" class="text-center text-sm text-gray-400 py-8">
+                    Geen sub-agents in deze tab (afgelopen 2 uur).
                 </div>
+                <div x-show="tabSubagents.elsewhere > 0" x-cloak class="px-4 pb-2 text-xs text-gray-400"
+                     x-text="tabSubagents.elsewhere + (tabSubagents.elsewhere === 1 ? ' sub-agent actief in een andere tab' : ' sub-agents actief in andere tabs') + ' van deze sessie (zie de badge op de tab).'"></div>
 
-                <template x-for="item in subagents.items" :key="item.id">
+                <template x-for="item in tabSubagents.items" :key="item.id">
                     <div class="px-4 py-3 border-t border-gray-700">
                         <div class="flex items-center gap-3">
                             {{-- Status icon --}}

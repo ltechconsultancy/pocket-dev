@@ -190,6 +190,18 @@ class UsageDashboardController extends Controller
     /**
      * GET /api/usage/claude-limits
      */
+    /**
+     * GET /api/usage/storage
+     * Disk usage plus the last cleanup / guard run (StorageJanitor status file).
+     */
+    public function storage(): JsonResponse
+    {
+        return response()->json([
+            'disk' => \App\Services\StorageJanitor::disk(),
+            'status' => collect(\App\Services\StorageJanitor::status())->only(['last_cleanup', 'last_guard'])->all(),
+        ]);
+    }
+
     public function claudeLimits(): JsonResponse
     {
         $utilization = $this->claudeUsage->getUtilization();

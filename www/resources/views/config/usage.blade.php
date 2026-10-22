@@ -125,6 +125,42 @@
     </div>
 
     {{-- ============================================================ --}}
+    {{-- STORAGE (StorageJanitor)                                      --}}
+    {{-- ============================================================ --}}
+    <div x-show="storage" x-cloak class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+        <h3 class="text-sm font-medium text-gray-200 mb-3">
+            <i class="fa-solid fa-hard-drive mr-1 text-blue-400"></i> Opslag
+        </h3>
+        <template x-if="storage">
+            <div class="space-y-3 text-xs">
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="text-gray-400" x-text="bytes(storage.disk.total - storage.disk.free) + ' van ' + bytes(storage.disk.total) + ' gebruikt'"></span>
+                        <span class="font-mono" :class="barTextColor(storage.disk.used_percent)" x-text="storage.disk.used_percent + '% · ' + bytes(storage.disk.free) + ' vrij'"></span>
+                    </div>
+                    <div class="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full" :class="barBgColor(storage.disk.used_percent)" :style="'width:' + storage.disk.used_percent + '%'"></div>
+                    </div>
+                </div>
+                <div class="flex justify-between gap-3">
+                    <span class="text-gray-400">Laatste opruiming</span>
+                    <span class="text-gray-300 text-right" x-text="storage.status.last_cleanup
+                        ? ago(storage.status.last_cleanup.at) + ' · ' + bytes(storage.status.last_cleanup.freed_bytes) + ' vrijgemaakt (' + storage.status.last_cleanup.count + ' items)'
+                        : 'nog niet'"></span>
+                </div>
+                <div class="flex justify-between gap-3">
+                    <span class="text-gray-400">Laatste controle (disk-guard)</span>
+                    <span class="text-gray-300 text-right" x-text="storage.status.last_guard
+                        ? ago(storage.status.last_guard.at) + ' · ' + storage.status.last_guard.level_after
+                          + ((storage.status.last_guard.healed || []).length ? ' · ' + storage.status.last_guard.healed.length + ' workers herstart' : '')
+                        : 'nog niet'"></span>
+                </div>
+                <p class="text-gray-500">Dagelijks om 04:30 opgeruimd: /tmp (7 dagen ongebruikt), PocketDev-logs, grote package-caches; wekelijks gestopte containers. Nooit: chat-uploads, gesprekken, projecten of iets dat in gebruik is.</p>
+            </div>
+        </template>
+    </div>
+
+    {{-- ============================================================ --}}
     {{-- OPENCODE GO: IS THE SUBSCRIPTION WORTH IT?                    --}}
     {{-- ============================================================ --}}
     <div x-show="summary" x-cloak class="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
@@ -442,6 +478,22 @@ function usageDashboard() {
         // Lifecycle
         // ============================================================
 
+        storage: null,
+
+        bytes(n) {
+            n = Number(n) || 0;
+            for (const u of ['B', 'KB', 'MB', 'GB', 'TB']) {
+                if (n < 1024 || u === 'TB') return (u === 'B' ? n : n.toFixed(1)) + ' ' + u;
+                n /= 1024;
+            }
+        },
+
+        ago(iso) {
+            if (!iso) return 'nog niet';
+            const m = Math.round((Date.now() - new Date(iso)) / 60000);
+            return m < 60 ? m + ' min geleden' : m < 2880 ? Math.round(m / 60) + ' uur geleden' : Math.round(m / 1440) + ' dagen geleden';
+        },
+
         init() {
             this.refresh();
             this.startTimer();
@@ -511,11 +563,13 @@ function usageDashboard() {
                     return res.json();
                 };
 
-                const [s, l, c] = await Promise.allSettled([
+                const [s, l, c, st] = await Promise.allSettled([
                     fetchJson(url),
                     fetchJson('/api/usage/claude-limits'),
                     fetchJson('/api/usage/cursor-limits'),
+                    fetchJson('/api/usage/storage'),
                 ]);
+                if (st.status === 'fulfilled') this.storage = st.value;
 
                 if (s.status === 'fulfilled') this.summary = s.value;
                 this.limits = l.status === 'fulfilled' ? l.value : { available: false, reason: 'fetch_failed' };

@@ -365,6 +365,7 @@ Route::prefix('api')->group(function () {
 
     Route::get('usage/summary', [\App\Http\Controllers\Api\UsageDashboardController::class, 'summary']);
     Route::get('usage/claude-limits', [\App\Http\Controllers\Api\UsageDashboardController::class, 'claudeLimits']);
+    Route::get('usage/storage', [\App\Http\Controllers\Api\UsageDashboardController::class, 'storage']);
     Route::get('usage/cursor-limits', [\App\Http\Controllers\Api\UsageDashboardController::class, 'cursorLimits']);
 
     /*

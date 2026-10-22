@@ -7382,12 +7382,14 @@
                             const response = await fetch(`/api/sessions/${sessionId}/subagents`, { headers: { 'Accept': 'application/json' } });
                             if (response.ok && sessionId === this._subagentSessionId) {
                                 const data = await response.json();
-                                if (data.running < this.subagents.running) {
-                                    // One finished: show "Sub-agent klaar" for a moment
+                                // One of this tab's sub-agents finished: show "Sub-agent klaar" for a moment
+                                const uuid = this.currentConversationUuid;
+                                const before = this.tabSubagents.running;
+                                this.subagents = data;
+                                if (uuid === this.currentConversationUuid && this.tabSubagents.running < before) {
                                     this.subagentFlash = true;
                                     setTimeout(() => { this.subagentFlash = false; }, 8000);
                                 }
-                                this.subagents = data;
                                 this._subagentFetchedAt = Date.now();
                             }
                         } catch (e) {
@@ -7537,10 +7539,19 @@
                 },
 
                 // Live-ticking duration of the longest-running sub-agent
+                // Sub-agents of the open chat tab (the pill and sheet are per tab; the
+                // tab and session badges keep showing the whole session)
+                get tabSubagents() {
+                    const uuid = this.currentConversationUuid;
+                    const items = (this.subagents.items || []).filter(i => !i.chat_uuid || i.chat_uuid === uuid);
+                    const running = items.filter(i => i.status === 'running' || i.status === 'pending').length;
+                    return { running, items, elsewhere: Math.max(0, (this.subagents.running || 0) - running) };
+                },
+
                 longestRunningSeconds() {
                     this._subagentTick; // re-evaluate every second
                     const extra = this._subagentFetchedAt ? (Date.now() - this._subagentFetchedAt) / 1000 : 0;
-                    const running = this.subagents.items.filter(i => i.status === 'running' || i.status === 'pending');
+                    const running = this.tabSubagents.items.filter(i => i.status === 'running' || i.status === 'pending');
                     return running.length ? Math.max(...running.map(i => i.duration_seconds)) + extra : 0;
                 },
 

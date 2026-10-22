@@ -133,6 +133,7 @@ class NativeSubAgentMonitor
             'native' => true,
             'events_url' => '/api/subagents/native/' . $conversation->uuid . '/' . $agent['agent_id'] . '/events',
             'conversation_uuid' => $conversation->uuid,
+            'chat_uuid' => $conversation->uuid,
             'title' => Str::limit($agent['description'] !== '' ? $agent['description'] : 'Claude sub-agent', 80),
             'agent' => 'Claude (ingebouwd) · ' . $agent['agent_type'],
             'status' => $status,

@@ -24,8 +24,6 @@
                         :stroke-dasharray="(2 * Math.PI * 9).toFixed(2)"
                         :stroke-dashoffset="((2 * Math.PI * 9) * (1 - Math.min(100, ring.five_hour?.percent || 0) / 100)).toFixed(2)"></circle>
             </svg>
-            <span x-show="ring.active && claudeRings.length > 1" class="absolute rounded-full bg-emerald-400"
-                  style="width: 5px; height: 5px; top: 50%; left: 50%; transform: translate(-50%, -50%);"></span>
         </button>
     </template>
 

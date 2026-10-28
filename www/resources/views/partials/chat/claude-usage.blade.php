@@ -2,7 +2,7 @@
      Tap for percentages and reset times. Data: the existing GET /api/usage/claude-limits
      (same as Settings > Usage). Colors: public/themes/claude-usage.css. --}}
 <div class="relative shrink-0 flex items-center" x-show="claudeUsage.five_hour || claudeUsage.seven_day || claudeAccounts.accounts.length > 0 || claudeAccounts.pending_login" x-cloak>
-    {{-- One ring per saved Claude account (letter = e-mail domain). Active ring: tap for details.
+    {{-- One ring per saved Claude account (e-mail in the tooltip). Active ring: tap for details.
          Dimmed ring: tap to switch to that account. --}}
     <template x-for="ring in claudeRingsToShow()" :key="ring.id">
         <button type="button"
@@ -24,9 +24,6 @@
                         :stroke-dasharray="(2 * Math.PI * 9).toFixed(2)"
                         :stroke-dashoffset="((2 * Math.PI * 9) * (1 - Math.min(100, ring.five_hour?.percent || 0) / 100)).toFixed(2)"></circle>
             </svg>
-            <span x-show="ring.short" class="absolute text-gray-200 font-bold pointer-events-none"
-                  style="font-size: 8px; line-height: 1; top: 50%; left: 50%; transform: translate(-50%, -50%);"
-                  x-text="ring.short"></span>
             <span x-show="ring.active && claudeRings.length > 1" class="absolute rounded-full bg-emerald-400"
                   style="width: 4px; height: 4px; bottom: 1px; left: 50%; transform: translateX(-50%);"></span>
         </button>

@@ -448,6 +448,17 @@ class ClaudeCodeProvider extends AbstractCliProvider
                 }
                 break;
 
+            case 'rate_limit_event':
+                // Same 5h / 7d utilization as the usage API: feeds the usage rings without polling
+                if (is_array($data['rate_limit_info'] ?? null)) {
+                    try {
+                        app(\App\Services\ClaudeCodeUsageService::class)->recordFromCli($data['rate_limit_info']);
+                    } catch (\Throwable $e) {
+                        Log::channel('api')->debug('ClaudeCodeProvider: could not record rate limit info', ['error' => $e->getMessage()]);
+                    }
+                }
+                break;
+
             case 'stream_event':
                 $state['gotStreamEvents'] = true;
                 yield from $this->parseStreamEvent($data, $state);

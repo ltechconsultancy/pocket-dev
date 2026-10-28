@@ -112,8 +112,8 @@ html[data-theme="brutal-light"] {
     --color-white: var(--b-ink);           /* text-white = main text on light panels */
 
     /* Dark tints (bg-blue-900/30 etc.) would muddy a light page: lighten them */
-    --color-blue-900: #eef9c4;
-    --color-blue-950: #f5fbdc;
+    --color-blue-900: #cfe0ff;
+    --color-blue-950: #e3edff;
     --color-purple-900: #ead9ff;
     --color-amber-900: #ffeeb3;
     --color-yellow-900: #fff3b0;
@@ -365,13 +365,13 @@ html[data-theme^="brutal"] .border.rounded-lg:is([class*="bg-blue-900/"], [class
 }
 
 html[data-theme="brutal-light"] {
-    --b-tint-blue: #eef9c4;   /* was light blue: pale lime fits the palette */
+    --b-tint-blue: #dbe7ff;
     --b-tint-purple: #efe3ff;
     --b-tint-amber: #fff1bf;
     --b-tint-red: #ffdede;
 }
 html[data-theme="brutal-dark"] {
-    --b-tint-blue: #1b2205;   /* was navy: dark olive */
+    --b-tint-blue: #0e1d3a;
     --b-tint-purple: #241338;
     --b-tint-amber: #2e2405;
     --b-tint-red: #330c0c;
@@ -507,9 +507,5 @@ html[data-theme="brutal-dark"] {
     --pd-soon: var(--b-accent);
 }
 html[data-theme^="brutal"] [role="progressbar"] .bg-blue-500 { background-color: var(--b-accent); }
-html[data-theme="brutal-dark"] {
-    --color-blue-900: #1b2205;
-    --color-blue-950: #121703;
-}
 /* Percentage on the lime fill stays readable in the dark theme */
 html[data-theme="brutal-dark"] [role="progressbar"] span { text-shadow: 0 0 2px #000, 0 0 3px #000; }

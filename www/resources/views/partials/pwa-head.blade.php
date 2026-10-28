@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="/themes/subagents.css?v=2">
 <link rel="stylesheet" href="/themes/claude-usage.css?v=2">
 <link rel="stylesheet" href="/themes/contributor.css?v=1">
-<link rel="stylesheet" href="/themes/brutalism.css?v=10">
+<link rel="stylesheet" href="/themes/brutalism.css?v=11">
 <script>
     (function () {
         var theme = null;

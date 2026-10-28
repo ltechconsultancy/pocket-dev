@@ -1,8 +1,8 @@
 {{-- Claude subscription usage: two nested rings (outer = week, inner = 5 hours), top right.
      Tap for percentages and reset times. Data: the existing GET /api/usage/claude-limits
      (same as Settings > Usage). Colors: public/themes/claude-usage.css. --}}
-<div class="relative shrink-0" x-show="claudeUsage.five_hour || claudeUsage.seven_day" x-cloak>
-    <button type="button" @click="showClaudeUsage = !showClaudeUsage"
+<div class="relative shrink-0" x-show="claudeUsage.five_hour || claudeUsage.seven_day || claudeAccounts.accounts.length > 0 || claudeAccounts.pending_login" x-cloak>
+    <button type="button" @click="showClaudeUsage = !showClaudeUsage; if (showClaudeUsage) loadClaudeAccounts()"
             class="flex items-center justify-center cursor-pointer"
             style="width: 36px; height: 36px;"
             :title="claudeUsageTitle()">
@@ -51,6 +51,49 @@
                     <div class="text-xs text-gray-400 mt-1" x-text="'Reset ' + formatUsageReset(claudeUsage[row.key]?.resets_at)"></div>
                 </div>
             </template>
+            <div x-show="!claudeUsage.five_hour && !claudeUsage.seven_day" class="text-xs text-gray-400 mb-3">
+                Nog geen verbruik bekend voor dit account. Verschijnt na de volgende Claude-beurt.
+            </div>
+
+            {{-- Saved Claude Code accounts: switch, add, remove --}}
+            <div class="border-t border-gray-700 pt-3 mb-3">
+                <div class="text-xs text-gray-400 mb-2">Account</div>
+                <template x-for="acc in claudeAccounts.accounts" :key="acc.id">
+                    <div class="flex items-center gap-2 rounded-md px-2 py-1.5 mb-1"
+                         :class="acc.active ? 'bg-gray-700' : 'hover:bg-gray-700 cursor-pointer'"
+                         @click="switchClaudeAccount(acc)">
+                        <i class="fa-solid" :class="acc.active ? 'fa-circle-check text-emerald-400' : 'fa-circle text-gray-500'" style="font-size: 12px;"></i>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-gray-100 truncate" style="font-size: 13px;" x-text="acc.label"></div>
+                            <div class="text-gray-400 truncate" style="font-size: 11px;"
+                                 x-text="[acc.email !== acc.label ? acc.email : null, acc.subscription].filter(Boolean).join(' · ')"></div>
+                        </div>
+                        <button type="button" x-show="!acc.active" @click.stop="removeClaudeAccount(acc)"
+                                class="text-gray-500 hover:text-red-400 cursor-pointer" title="Verwijderen"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                </template>
+
+                <div x-show="claudeAccounts.pending_login" class="text-xs text-amber-300 bg-gray-900 rounded-md p-2 mb-2">
+                    Log nu in met het andere account:
+                    @if(config('backup.user_id') !== null)
+                        <div class="font-mono text-green-400 select-all mt-1" style="font-size: 10px; overflow-wrap: anywhere;">docker exec -it -u {{ config('backup.user_id') }} {{ config('pocketdev.project_name', 'pocket-dev') }}-queue claude</div>
+                        <div class="mt-1 text-gray-400">en typ <code>/login</code>. Of upload de inlog op <a href="{{ url('/claude/auth') }}" class="text-blue-400">Claude-auth</a>.</div>
+                    @else
+                        <a href="{{ url('/claude/auth') }}" class="text-blue-400">Claude-auth</a>
+                    @endif
+                    <div class="flex gap-3 mt-2">
+                        <button type="button" @click="loadClaudeAccounts()" class="text-blue-400 hover:text-blue-300 cursor-pointer">Klaar, vernieuwen</button>
+                        <button type="button" @click="cancelAddClaudeAccount()" class="text-gray-400 hover:text-white cursor-pointer">Annuleren</button>
+                    </div>
+                </div>
+
+                <button type="button" x-show="!claudeAccounts.pending_login" @click="addClaudeAccount()"
+                        class="text-xs text-blue-400 hover:text-blue-300 cursor-pointer" :disabled="claudeAccounts.busy">
+                    <i class="fa-solid fa-plus"></i> Account toevoegen
+                </button>
+                <div x-show="claudeAccounts.error" class="text-xs text-red-400 mt-1" x-text="claudeAccounts.error"></div>
+            </div>
+
             <div class="flex items-center justify-between text-xs">
                 <span class="text-gray-500" x-text="'Bijgewerkt ' + formatUsageAge(claudeUsage.fetched_at)"></span>
                 <a href="{{ route('config.usage') }}" class="text-blue-400 hover:text-blue-300">Details <i class="fa-solid fa-arrow-right"></i></a>

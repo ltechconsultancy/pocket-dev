@@ -52,10 +52,37 @@
                 </div>
             </div>
 
-            <!-- Authentication Methods -->
-            @if(!$status["authenticated"])
+            <!-- Saved accounts: switch between Claude subscriptions -->
+            @if(count($accounts) > 0)
             <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
-                <h2 class="text-xl font-semibold mb-4">Authentication Methods</h2>
+                <h2 class="text-xl font-semibold mb-4">Accounts</h2>
+                <div class="space-y-2">
+                    @foreach($accounts as $account)
+                        <div class="flex items-center gap-3 rounded p-3 {{ $account['active'] ? 'bg-green-900/30 border border-green-700' : 'bg-gray-900 border border-gray-700' }}">
+                            <div class="flex-1 min-w-0">
+                                <div class="font-semibold">{{ $account['label'] }} @if($account['active'])<span class="text-green-400 text-sm font-normal">· actief</span>@endif</div>
+                                <div class="text-sm text-gray-400">{{ collect([$account['email'] !== $account['label'] ? $account['email'] : null, $account['subscription'] ? ucfirst($account['subscription']) : null])->filter()->implode(' · ') }}</div>
+                            </div>
+                            @if(!$account['active'])
+                                <button onclick="switchAccount('{{ $account['id'] }}')" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm">Wissel</button>
+                                <button onclick="removeAccount('{{ $account['id'] }}')" class="px-3 py-2 bg-gray-700 hover:bg-red-700 rounded text-sm" title="Verwijderen">✕</button>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+                <p class="text-sm text-gray-400 mt-3">Wisselen kan ook via de verbruiksringen rechtsboven in de chat.</p>
+            </div>
+            @endif
+
+            <!-- Authentication Methods (also with an active login: upload adds another account) -->
+            @if(true)
+            <div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+                <h2 class="text-xl font-semibold mb-1">{{ $status["authenticated"] ? 'Ander account toevoegen' : 'Authentication Methods' }}</h2>
+                @if($status["authenticated"])
+                    <p class="text-sm text-gray-400 mb-4">Upload de <code>.credentials.json</code> van een ander Claude-account. Het huidige account blijft bewaard; het nieuwe wordt actief en je kunt daarna wisselen.</p>
+                @else
+                    <div class="mb-4"></div>
+                @endif
                 
                 <!-- Tabs -->
                 <div class="flex space-x-2 mb-6 border-b border-gray-700">
@@ -202,6 +229,31 @@
                 showResult('upload-result', 'error', 'Upload failed: ' + err.message);
             }
         });
+
+        async function accountCall(method, url) {
+            const response = await fetch(url, {
+                method,
+                headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok === false) {
+                alert(data.error || 'Mislukt');
+                return;
+            }
+            window.location.reload();
+        }
+
+        function switchAccount(id) {
+            if (confirm('Naar dit account wisselen? Nieuwe chatbeurten gebruiken dit account.')) {
+                accountCall('POST', '{{ url('/api/claude-accounts') }}/' + id + '/switch');
+            }
+        }
+
+        function removeAccount(id) {
+            if (confirm('Dit account uit de lijst verwijderen?')) {
+                accountCall('DELETE', '{{ url('/api/claude-accounts') }}/' + id);
+            }
+        }
 
         // JSON form
         document.getElementById('json-form').addEventListener('submit', async (e) => {

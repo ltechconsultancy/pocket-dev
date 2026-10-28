@@ -102,6 +102,28 @@ class ClaudeAccountService
         return $this->list();
     }
 
+    /**
+     * Install uploaded credentials (file upload / pasted JSON on /claude/auth) as the active login.
+     * The current account is parked in its slot first, so uploading a second account never loses
+     * the first one. The same account uploaded again (matched on e-mail) reuses its slot.
+     */
+    public function installCredentials(array $credentials): array
+    {
+        $index = $this->readIndex();
+        if (!$index['active_id'] && ($live = $this->readLive())) {
+            $index = $this->adopt($index, $live);
+        }
+        $this->parkLive($index);
+
+        AppUserFiles::write($this->credentialsPath, json_encode($credentials, JSON_PRETTY_PRINT));
+        $index['previous_id'] = $index['active_id'];
+        $index['active_id'] = null;
+        $this->adopt($index, $credentials);
+        $this->forgetUsage();
+
+        return $this->list();
+    }
+
     /** Park the current account and clear the live login, so another account can log in. */
     public function beginAdd(): array
     {

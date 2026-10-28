@@ -7353,9 +7353,9 @@
                     }
                 },
 
-                async addClaudeAccount() {
-                    if (!confirm('Ander Claude-account toevoegen?\n\nHet huidige account wordt bewaard en uitgelogd. Log daarna in met het andere account; daarna kun je hier wisselen.')) return;
-                    await this.claudeAccountsCall('POST', '/api/claude-accounts/add');
+                // Upload the other account's .credentials.json on /claude/auth (current one is kept)
+                addClaudeAccount() {
+                    window.location.href = '/claude/auth';
                 },
 
                 cancelAddClaudeAccount() {

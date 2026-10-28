@@ -251,7 +251,6 @@ class ClaudeCodeProvider extends AbstractCliProvider
             $env['BASH_MAX_TIMEOUT_MS'] = (string) $bashMax;
         }
 
-
         // Auto-compact stays on (--autocompact auto on the command). The CLI
         // compacts before the prompt exceeds the model window.
 
@@ -922,13 +921,9 @@ class ClaudeCodeProvider extends AbstractCliProvider
         string $cwd,
         string $model
     ): array {
-        $content = is_array($message->content) ? $message->content : [];
-        // Filter out interrupted markers and any tool_use blocks (which may be
-        // incomplete after an immediate abort). Only text and signed thinking
-        // blocks are safe to sync to the CLI session file.
-        $content = array_values(array_filter($content, fn($block) =>
-            !in_array($block['type'] ?? '', ['interrupted', 'tool_use'])
-        ));
+        $content = $this->sanitizeAssistantContentForSession(
+            is_array($message->content) ? $message->content : []
+        );
 
         return [
             'parentUuid' => $parentUuid,
@@ -956,6 +951,59 @@ class ClaudeCodeProvider extends AbstractCliProvider
             'uuid' => $uuid,
             'timestamp' => $message->created_at->toISOString(),
         ];
+    }
+
+    /**
+     * Reduce stored content blocks to what the Messages API accepts.
+     *
+     * The CLI replays the session file verbatim to the API, so any extra key
+     * (PocketDev's started_at/finished_at timing metadata) makes every later
+     * turn fail with "Extra inputs are not permitted". Interrupted markers and
+     * tool_use blocks (possibly incomplete after an abort) are dropped, as are
+     * empty text blocks and thinking blocks without a signature.
+     */
+    private function sanitizeAssistantContentForSession(array $content): array
+    {
+        $clean = [];
+
+        foreach ($content as $block) {
+            if (!is_array($block)) {
+                continue;
+            }
+
+            switch ($block['type'] ?? '') {
+                case 'text':
+                    $text = (string) ($block['text'] ?? '');
+                    if (trim($text) !== '') {
+                        $clean[] = ['type' => 'text', 'text' => $text];
+                    }
+                    break;
+
+                case 'thinking':
+                    if (!empty($block['signature'])) {
+                        $clean[] = [
+                            'type' => 'thinking',
+                            'thinking' => (string) ($block['thinking'] ?? ''),
+                            'signature' => (string) $block['signature'],
+                        ];
+                    }
+                    break;
+
+                case 'redacted_thinking':
+                    if (!empty($block['data'])) {
+                        $clean[] = ['type' => 'redacted_thinking', 'data' => (string) $block['data']];
+                    }
+                    break;
+            }
+        }
+
+        // An assistant turn needs at least one non-thinking block
+        $hasText = (bool) array_filter($clean, fn($b) => $b['type'] === 'text');
+        if (!$hasText) {
+            $clean[] = ['type' => 'text', 'text' => '[Response interrupted by user]'];
+        }
+
+        return $clean;
     }
 
     // ========================================================================

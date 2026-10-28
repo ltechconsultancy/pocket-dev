@@ -74,6 +74,7 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
         ModelRepository $modelRepository,
     ): void {
         $jobStartedAt = now();
+        self::raiseMemoryLimit();
         RequestFlowLogger::startJob($this->conversationUuid, 'ProcessConversationStream');
         RequestFlowLogger::log('job.handle.start', 'Job handler started', [
             'prompt_length' => strlen($this->prompt),
@@ -192,6 +193,16 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
 
                 // Send push notification if enabled
                 $this->dispatchPushNotification($conversation, 'completed', $jobStartedAt);
+            } elseif ($streamManager->isStreaming($this->conversationUuid)) {
+                // The DB status was already reset (e.g. an abort + queued follow-up
+                // marked the chat idle mid-run), but the follow-up turn restarted the
+                // Redis stream. Without this the UI keeps showing "streaming" forever
+                // and blocks input. Safe: this job still holds the run lock, so no
+                // other turn can own the stream right now.
+                RequestFlowLogger::log('job.handle.stale_stream_completed', 'DB not processing but Redis stream still open; completing stream', [
+                    'current_status' => $currentStatus,
+                ]);
+                $streamManager->completeStream($this->conversationUuid);
             }
 
             RequestFlowLogger::endRequest('success');
@@ -293,6 +304,36 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
     /**
      * Stream from provider and handle tool execution.
      */
+    /**
+     * Long agent sessions produce very large messages (tool results with screenshots).
+     * The PHP CLI default (128M) is too tight for that, and hitting it is a fatal error that
+     * kills the queue worker mid-turn (the conversation silently stops). Raise the limit for
+     * this job; never lower an existing higher (or unlimited) limit.
+     */
+    private static function raiseMemoryLimit(): void
+    {
+        $target = (string) config('ai.stream_job_memory_limit', '1024M');
+        $current = (string) ini_get('memory_limit');
+        if (self::iniBytes($target) > self::iniBytes($current)) {
+            ini_set('memory_limit', $target);
+        }
+    }
+
+    private static function iniBytes(string $value): int
+    {
+        $value = trim($value);
+        if ($value === '' || $value === '-1') {
+            return PHP_INT_MAX;
+        }
+        $number = (int) $value;
+        return match (strtolower(substr($value, -1))) {
+            'g' => $number * 1024 ** 3,
+            'm' => $number * 1024 ** 2,
+            'k' => $number * 1024,
+            default => $number,
+        };
+    }
+
     private function streamWithToolLoop(
         Conversation $conversation,
         AIProviderInterface $provider,
@@ -325,13 +366,21 @@ class ProcessConversationStream implements ShouldQueue, ShouldBeUniqueUntilProce
             // Throw exception to trigger the failStream logic in the catch block
             throw new \RuntimeException('Maximum tool execution iterations reached (safety limit)');
         }
-        // Reload messages
+        // Reload messages. API providers rebuild the full history from the DB on every iteration.
+        // CLI providers keep their own history (session resume), so loading every message here
+        // — including multi-MB tool results with base64 screenshots — only costs memory. On long
+        // agent sessions that pushed the worker past PHP's memory_limit (fatal, conversation died).
         $loadMessagesStart = microtime(true);
-        $conversation->load('messages');
+        if ($provider instanceof AbstractCliProvider) {
+            $messageCount = $conversation->messages()->count();
+        } else {
+            $conversation->load('messages');
+            $messageCount = $conversation->messages->count();
+        }
         $loadMessagesTime = (microtime(true) - $loadMessagesStart) * 1000;
         RequestFlowLogger::log('job.loop.messages_loaded', 'Messages loaded from DB', [
             'duration_ms' => round($loadMessagesTime, 2),
-            'message_count' => $conversation->messages->count(),
+            'message_count' => $messageCount,
         ]);
 
         // Check for context reminders (interruption, agent change) on first iteration only

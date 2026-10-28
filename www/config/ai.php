@@ -34,6 +34,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Stream Job Memory Limit
+    |--------------------------------------------------------------------------
+    |
+    | PHP memory_limit applied inside ProcessConversationStream. Long agent
+    | sessions (many tool results, screenshots) exceed the CLI default of 128M,
+    | which is a fatal error that kills the worker mid-turn.
+    |
+    */
+
+    'stream_job_memory_limit' => env('PD_STREAM_JOB_MEMORY_LIMIT', '1024M'),
+
+    /*
+    |--------------------------------------------------------------------------
     | AI Providers
     |--------------------------------------------------------------------------
     |

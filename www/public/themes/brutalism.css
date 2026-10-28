@@ -494,17 +494,16 @@ html[data-theme^="brutal"] :is(.notification, .pd-alert) :is(li, span, p) { colo
 
 
 /* ---------------------------------------------------------------- no blue
-   Blue clashes with the brutalist palette. Accent text/icons become ink on paper (light) and
-   lime on black (dark); the context meter fills with the accent like the primary buttons. */
+   Blue clashes with the brutalist palette. Accent text/icons become ink (black on light, white on dark); the context meter fills with the accent like the primary buttons. */
 html[data-theme="brutal-light"] {
     --color-blue-300: var(--b-ink);
     --color-blue-400: var(--b-ink);
     --pd-soon: var(--b-ink);
 }
 html[data-theme="brutal-dark"] {
-    --color-blue-300: var(--b-accent);
-    --color-blue-400: var(--b-accent);
-    --pd-soon: var(--b-accent);
+    --color-blue-300: var(--b-ink);
+    --color-blue-400: var(--b-ink);
+    --pd-soon: var(--b-ink);
 }
 html[data-theme^="brutal"] [role="progressbar"] .bg-blue-500 { background-color: var(--b-accent); }
 /* Percentage on the lime fill stays readable in the dark theme */

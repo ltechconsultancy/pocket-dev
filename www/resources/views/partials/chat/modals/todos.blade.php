@@ -103,7 +103,7 @@
             if (days < 0) { label = 'te laat · ' + nice; color = '#f87171'; }
             else if (days === 0) { label = 'vandaag'; color = '#fbbf24'; }
             else if (days === 1) { label = 'morgen'; color = '#fbbf24'; }
-            else if (days <= 7) { color = '#60a5fa'; }
+            else if (days <= 7) { color = 'var(--pd-soon, #60a5fa)'; }
         }
         return { label, color };
     },

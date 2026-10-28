@@ -28,7 +28,8 @@
                         </span>
                         <span x-show="appTrayTodo.open" x-cloak
                               class="absolute flex items-center justify-center rounded-full text-white font-bold border-2 border-gray-800"
-                              :style="'right: -6px; bottom: -6px; min-width: 22px; height: 22px; padding: 0 4px; font-size: 10px; background:' + (appTrayTodo.urgent ? '#dc2626' : '#2563eb')"
+                              :class="appTrayTodo.urgent ? 'bg-red-600' : 'bg-blue-600'"
+                              style="right: -6px; bottom: -6px; min-width: 22px; height: 22px; padding: 0 4px; font-size: 10px;"
                               :title="appTrayTodo.urgent ? appTrayTodo.urgent + ' vandaag / te laat' : ''"
                               x-text="appTrayTodo.open"></span>
                     </span>

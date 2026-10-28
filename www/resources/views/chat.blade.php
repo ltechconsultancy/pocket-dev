@@ -1366,6 +1366,9 @@
                             title="Sessie- en chatacties">
                         <i class="fa-solid fa-ellipsis-vertical text-lg"></i>
                     </button>
+                    <button @click="openTodos()" class="text-gray-300 hover:text-white p-2 cursor-pointer" title="Todo">
+                        <i class="fa-solid fa-list-check text-lg"></i>
+                    </button>
                     <button @click="openAppTray()" class="text-gray-300 hover:text-white p-2 cursor-pointer" title="Apps">
                         <i class="fa-solid fa-grip text-xl"></i>
                     </button>
@@ -2019,6 +2022,8 @@
                 appTrayItems: [],
                 appTrayLoading: false,
                 appTraySelected: null, // app whose sub-links are shown
+                // Todo app (modal has its own Alpine scope, see partials/chat/modals/todos)
+                showTodos: false,
                 // Sub-agents of the current session (pill + sheet above the input)
                 subagents: { running: 0, items: [] },
                 showSubagentSheet: false,
@@ -7593,6 +7598,13 @@
                         this.showError('Stoppen mislukt: ' + e.message);
                     }
                     this.refreshSubagents();
+                },
+
+                // ===== Todo app =====
+
+                openTodos() {
+                    this.showTodos = true;
+                    window.dispatchEvent(new CustomEvent('todos-open'));
                 },
 
                 // ===== App Tray =====

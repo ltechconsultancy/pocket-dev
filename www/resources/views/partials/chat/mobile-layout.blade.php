@@ -52,6 +52,9 @@
                 title="Sessie- en chatacties">
             <i class="fa-solid fa-ellipsis-vertical text-lg px-1"></i>
         </button>
+        <button @click="openTodos()" class="text-gray-300 hover:text-white p-2" title="Todo">
+            <i class="fa-solid fa-list-check text-lg"></i>
+        </button>
         <button @click="openAppTray()" class="text-gray-300 hover:text-white p-2" title="Apps">
             <i class="fa-solid fa-grip text-xl"></i>
         </button>

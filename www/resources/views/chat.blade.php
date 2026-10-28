@@ -7399,8 +7399,9 @@
                     try {
                         const response = await fetch('/api/claude-accounts/usage', { headers: { 'Accept': 'application/json' } });
                         if (!response.ok) return;
+                        // A window whose reset time has passed is empty again (data may be older than the reset)
                         const win = (w) => w && w.utilization !== undefined && w.utilization !== null
-                            ? { percent: Number(w.utilization), resets_at: w.resets_at } : null;
+                            ? { percent: (w.resets_at && new Date(w.resets_at) < new Date()) ? 0 : Number(w.utilization), resets_at: w.resets_at } : null;
                         this.claudeRings = ((await response.json()).accounts || []).map(a => ({
                             ...a, five_hour: win(a.five_hour), seven_day: win(a.seven_day)
                         }));

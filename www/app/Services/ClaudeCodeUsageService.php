@@ -142,9 +142,15 @@ class ClaudeCodeUsageService
         $out = [];
         foreach ($accounts->withTokens() as $acc) {
             if ($acc['active']) {
-                $data = $this->getUtilization();
-                if ($data) {
-                    $this->storeForAccount($acc['id'], $data);
+                // Only fresh data counts: during a 429 backoff getUtilization() serves the last good
+                // copy, which must not be re-stamped as new (that showed an old 0% as current).
+                $stored = Cache::get(self::ACCOUNT_KEY . $acc['id']);
+                $recent = $stored && now()->diffInSeconds(\Carbon\Carbon::parse($stored['fetched_at']), true) < self::CACHE_TTL;
+                if (!$recent) {
+                    $this->getUtilization();
+                    if ($fresh = Cache::get(self::CACHE_KEY)) {
+                        $this->storeForAccount($acc['id'], $fresh);
+                    }
                 }
             } else {
                 $this->refreshInactive($acc);

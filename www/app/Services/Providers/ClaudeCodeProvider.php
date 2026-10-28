@@ -347,7 +347,10 @@ class ClaudeCodeProvider extends AbstractCliProvider
         if ($state['totalCost'] !== null || $state['inputTokens'] > 0) {
             $cacheCreate = (int) ($state['cacheCreationTokens'] ?? 0);
             $cacheRead = (int) ($state['cacheReadTokens'] ?? 0);
-            $contextInput = max(0, $state['inputTokens'] - $cacheCreate - $cacheRead);
+            // Context fill = the full prompt of the LAST API call (message_start overwrites the state
+            // per call, it is not summed over the turn). Cached tokens are still in the context
+            // window, so they count; subtracting them made the meter show ~0% (a few uncached tokens).
+            $contextInput = (int) $state['inputTokens'];
 
             yield StreamEvent::usage(
                 $state['inputTokens'],

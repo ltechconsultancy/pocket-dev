@@ -24,8 +24,16 @@ class ClaudeAuthController extends Controller
      */
     public function index()
     {
+        $accounts = app(\App\Services\ClaudeAccountService::class);
+        try {
+            $accountList = $accounts->locked(fn() => $accounts->list())['accounts'];
+        } catch (\Throwable) {
+            $accountList = [];
+        }
+
         return view("claude-auth", [
             "status" => $this->getAuthenticationStatus(),
+            "accounts" => $accountList,
         ]);
     }
 
@@ -74,7 +82,9 @@ class ClaudeAuthController extends Controller
             }
 
             // Save as appuser with mode 0600, like the Claude CLI itself (see AppUserFiles)
-            \App\Support\AppUserFiles::write($this->credentialsPath, $content);
+            // Saved as an account (the current one is kept, see ClaudeAccountService)
+            $accounts = app(\App\Services\ClaudeAccountService::class);
+            $accounts->locked(fn() => $accounts->installCredentials(json_decode($content, true)));
 
             Log::info("[Claude Auth] Credentials file uploaded successfully");
 
@@ -132,7 +142,8 @@ class ClaudeAuthController extends Controller
             }
 
             // Save as appuser with mode 0600, like the Claude CLI itself (see AppUserFiles)
-            \App\Support\AppUserFiles::write($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT));
+            $accounts = app(\App\Services\ClaudeAccountService::class);
+            $accounts->locked(fn() => $accounts->installCredentials($data));
 
             Log::info("[Claude Auth] Credentials saved from JSON input");
 

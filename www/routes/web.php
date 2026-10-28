@@ -368,6 +368,7 @@ Route::prefix('api')->group(function () {
 
     // Several Claude Code subscription accounts, one active (switch from the usage popover)
     Route::get('claude-accounts', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'index']);
+    Route::get('claude-accounts/usage', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'usage']);
     Route::post('claude-accounts/add', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'add']);
     Route::post('claude-accounts/add/cancel', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'cancelAdd']);
     Route::post('claude-accounts/{id}/switch', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'switch'])->whereUuid('id');

@@ -1,26 +1,36 @@
 {{-- Claude subscription usage: two nested rings (outer = week, inner = 5 hours), top right.
      Tap for percentages and reset times. Data: the existing GET /api/usage/claude-limits
      (same as Settings > Usage). Colors: public/themes/claude-usage.css. --}}
-<div class="relative shrink-0" x-show="claudeUsage.five_hour || claudeUsage.seven_day || claudeAccounts.accounts.length > 0 || claudeAccounts.pending_login" x-cloak>
-    <button type="button" @click="showClaudeUsage = !showClaudeUsage; if (showClaudeUsage) loadClaudeAccounts()"
-            class="flex items-center justify-center cursor-pointer"
-            style="width: 36px; height: 36px;"
-            :title="claudeUsageTitle()">
-        <svg viewBox="0 0 36 36" width="30" height="30" style="transform: rotate(-90deg);">
-            {{-- Outer ring: 7 days --}}
-            <circle cx="18" cy="18" r="15" fill="none" stroke-width="3.5" class="cu-track"></circle>
-            <circle cx="18" cy="18" r="15" fill="none" stroke-width="3.5" stroke-linecap="round"
-                    :class="'cu-ring ' + claudeUsageLevel(claudeUsage.seven_day)"
-                    :stroke-dasharray="(2 * Math.PI * 15).toFixed(2)"
-                    :stroke-dashoffset="((2 * Math.PI * 15) * (1 - Math.min(100, claudeUsage.seven_day?.percent || 0) / 100)).toFixed(2)"></circle>
-            {{-- Inner ring: 5 hours --}}
-            <circle cx="18" cy="18" r="9" fill="none" stroke-width="3.5" class="cu-track"></circle>
-            <circle cx="18" cy="18" r="9" fill="none" stroke-width="3.5" stroke-linecap="round"
-                    :class="'cu-ring ' + claudeUsageLevel(claudeUsage.five_hour)"
-                    :stroke-dasharray="(2 * Math.PI * 9).toFixed(2)"
-                    :stroke-dashoffset="((2 * Math.PI * 9) * (1 - Math.min(100, claudeUsage.five_hour?.percent || 0) / 100)).toFixed(2)"></circle>
-        </svg>
-    </button>
+<div class="relative shrink-0 flex items-center" x-show="claudeUsage.five_hour || claudeUsage.seven_day || claudeAccounts.accounts.length > 0 || claudeAccounts.pending_login" x-cloak>
+    {{-- One ring per saved Claude account (letter = e-mail domain). Active ring: tap for details.
+         Dimmed ring: tap to switch to that account. --}}
+    <template x-for="ring in claudeRingsToShow()" :key="ring.id">
+        <button type="button"
+                @click="ring.active ? (showClaudeUsage = !showClaudeUsage, showClaudeUsage && loadClaudeAccounts()) : switchClaudeAccount(ring)"
+                class="relative flex items-center justify-center cursor-pointer"
+                :style="'width: 34px; height: 36px;' + (ring.active ? '' : ' opacity: 0.45;')"
+                :title="claudeRingTitle(ring)">
+            <svg viewBox="0 0 36 36" width="30" height="30" style="transform: rotate(-90deg);">
+                {{-- Outer ring: 7 days --}}
+                <circle cx="18" cy="18" r="15" fill="none" stroke-width="3.5" class="cu-track"></circle>
+                <circle cx="18" cy="18" r="15" fill="none" stroke-width="3.5" stroke-linecap="round"
+                        :class="'cu-ring ' + claudeUsageLevel(ring.seven_day)"
+                        :stroke-dasharray="(2 * Math.PI * 15).toFixed(2)"
+                        :stroke-dashoffset="((2 * Math.PI * 15) * (1 - Math.min(100, ring.seven_day?.percent || 0) / 100)).toFixed(2)"></circle>
+                {{-- Inner ring: 5 hours --}}
+                <circle cx="18" cy="18" r="9" fill="none" stroke-width="3.5" class="cu-track"></circle>
+                <circle cx="18" cy="18" r="9" fill="none" stroke-width="3.5" stroke-linecap="round"
+                        :class="'cu-ring ' + claudeUsageLevel(ring.five_hour)"
+                        :stroke-dasharray="(2 * Math.PI * 9).toFixed(2)"
+                        :stroke-dashoffset="((2 * Math.PI * 9) * (1 - Math.min(100, ring.five_hour?.percent || 0) / 100)).toFixed(2)"></circle>
+            </svg>
+            <span x-show="ring.short" class="absolute text-gray-200 font-bold pointer-events-none"
+                  style="font-size: 8px; line-height: 1; top: 50%; left: 50%; transform: translate(-50%, -50%);"
+                  x-text="ring.short"></span>
+            <span x-show="ring.active && claudeRings.length > 1" class="absolute rounded-full bg-emerald-400"
+                  style="width: 4px; height: 4px; bottom: 1px; left: 50%; transform: translateX(-50%);"></span>
+        </button>
+    </template>
 
     <template x-teleport="body">
         <div x-show="showClaudeUsage" x-cloak

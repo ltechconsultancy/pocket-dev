@@ -19,7 +19,7 @@
             const r = await fetch('/api/todos', { headers: { 'Accept': 'application/json' } });
             if (r.ok) {
                 this.data = await r.json();
-                if (this.quick.project_id && !this.project(this.quick.project_id)) this.quick.project_id = '';
+                this.checkQuickProject();
             }
         } catch (e) { /* offline: keep what we had */ }
         finally { this.loading = false; }
@@ -114,7 +114,12 @@
     },
 
     // ----- Actions -----
+    checkQuickProject() {
+        const p = this.quick.project_id && this.project(this.quick.project_id);
+        if (!p || p.done) this.quick.project_id = '';
+    },
     async quickAdd() {
+        this.checkQuickProject();
         const title = this.quick.title.trim();
         if (!title) return;
         localStorage.setItem('todoQuickProject', this.quick.project_id);

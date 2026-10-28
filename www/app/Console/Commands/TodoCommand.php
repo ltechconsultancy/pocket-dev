@@ -10,6 +10,7 @@ use App\Models\TodoTask;
 use App\Services\TodoService;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Model;
+use Carbon\Carbon;
 use InvalidArgumentException;
 
 /**
@@ -55,6 +56,8 @@ class TodoCommand extends Command
             };
         } catch (InvalidArgumentException $e) {
             return $this->failWith($e->getMessage());
+        } catch (\Illuminate\Database\QueryException $e) {
+            return $this->failWith('Database error: ' . strtok($e->getMessage(), "\n"));
         }
     }
 
@@ -149,7 +152,7 @@ class TodoCommand extends Command
             $data['session_id'] = match (strtolower($session)) {
                 'current' => getenv('POCKETDEV_SESSION_ID') ?: null,
                 'none', '' => null,
-                default => Session::whereKey($session)->exists() ? $session : throw new InvalidArgumentException('Session not found'),
+                default => TodoService::findKey(Session::class, $session)?->id ?? throw new InvalidArgumentException('Session not found'),
             };
         }
         if (($app = $this->option('app')) !== null) {
@@ -191,7 +194,7 @@ class TodoCommand extends Command
         if ($ref === '' || strtolower($ref) === 'none') {
             return null;
         }
-        $app = AppTrayItem::find($ref) ?? AppTrayItem::whereRaw('LOWER(title) = ?', [mb_strtolower($ref)])->first();
+        $app = TodoService::findKey(AppTrayItem::class, $ref) ?? AppTrayItem::whereRaw('LOWER(title) = ?', [mb_strtolower($ref)])->first();
         if (!$app) {
             throw new InvalidArgumentException("App \"{$ref}\" is not in the App Tray (see `pd app-tray list`)");
         }
@@ -316,7 +319,7 @@ class TodoCommand extends Command
 
     private function deadlineLabel($date): string
     {
-        $days = (int) now()->startOfDay()->diffInDays($date->copy()->startOfDay(), false);
+        $days = (int) TodoService::today()->diffInDays(Carbon::createFromFormat('!Y-m-d', $date->format('Y-m-d'), TodoService::timezone()), false);
         $suffix = match (true) {
             $days < 0 => ', OVERDUE',
             $days === 0 => ', today',

@@ -8,6 +8,7 @@ use App\Models\TodoClient;
 use App\Models\TodoProject;
 use App\Models\TodoTask;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 
@@ -19,6 +20,23 @@ use InvalidArgumentException;
 class TodoService
 {
     public const TYPES = ['client' => TodoClient::class, 'project' => TodoProject::class, 'task' => TodoTask::class];
+
+    /** Timezone for "today", "tomorrow" and overdue (the app itself runs in UTC). */
+    public static function timezone(): string
+    {
+        return config('app.user_timezone', 'Europe/Amsterdam');
+    }
+
+    public static function today(): Carbon
+    {
+        return Carbon::now(self::timezone())->startOfDay();
+    }
+
+    /** Find by primary key without letting a non-uuid string reach Postgres (uuid column). */
+    public static function findKey(string $class, mixed $id): ?Model
+    {
+        return is_string($id) && Str::isUuid($id) ? $class::find(strtolower($id)) : null;
+    }
 
     /** Full state for the UI. */
     public function snapshot(): array
@@ -73,7 +91,7 @@ class TodoService
         }
         $class = $this->modelClass($type);
 
-        if (preg_match('/^[0-9a-f-]{36}$/i', $ref) && ($m = $class::find(strtolower($ref)))) {
+        if ($m = self::findKey($class, $ref)) {
             return $m;
         }
         if (preg_match('/^[0-9a-f]{4,}$/i', $ref)) {
@@ -121,19 +139,48 @@ class TodoService
         return $model;
     }
 
-    /** Check off (or reopen). Checking off a task also checks off its open subtasks. */
+    /**
+     * Check off (or reopen).
+     * - Checking off a task/project also checks off its open subtasks/tasks, with the same timestamp,
+     *   so reopening it restores exactly those (items checked off earlier stay done).
+     * - Reopening a subtask/task inside a done task/project reopens that parent, so it never ends up hidden.
+     */
     public function setDone(string $type, Model $model, bool $done, string $actor): Model
     {
         if ($type === 'client') {
             throw new InvalidArgumentException('Clients cannot be checked off');
         }
-        $model->done_at = $done ? now() : null;
-        $model->done_by = $done ? $actor : null;
+        $children = $type === 'task'
+            ? TodoTask::where('parent_id', $model->id)
+            : TodoTask::where('project_id', $model->id);
+
+        if ($done) {
+            if ($model->done_at) {
+                return $model;
+            }
+            $now = now()->startOfSecond();
+            $model->done_at = $now;
+            $model->done_by = $actor;
+            $model->save();
+            (clone $children)->whereNull('done_at')->update(['done_at' => $now, 'done_by' => $actor]);
+
+            return $model;
+        }
+
+        if ($previous = $model->done_at) {
+            (clone $children)->where('done_at', $previous)->update(['done_at' => null, 'done_by' => null]);
+        }
+        $model->done_at = null;
+        $model->done_by = null;
         $model->save();
 
-        if ($done && $type === 'task') {
-            TodoTask::where('parent_id', $model->id)->whereNull('done_at')
-                ->update(['done_at' => now(), 'done_by' => $actor]);
+        if ($type === 'task') {
+            if ($model->parent_id) {
+                TodoTask::whereKey($model->parent_id)->whereNotNull('done_at')->update(['done_at' => null, 'done_by' => null]);
+            }
+            if ($model->project_id) {
+                TodoProject::whereKey($model->project_id)->whereNotNull('done_at')->update(['done_at' => null, 'done_by' => null]);
+            }
         }
 
         return $model;
@@ -145,6 +192,11 @@ class TodoService
      */
     private function validate(string $type, array $data, ?Model $existing): array
     {
+        foreach ($data as $key => $value) {
+            if ($value !== null && !is_scalar($value)) {
+                throw new InvalidArgumentException("Invalid value for {$key}");
+            }
+        }
         $out = [];
         $labelKey = $type === 'task' ? 'title' : 'name';
         $max = ['client' => 100, 'project' => 150, 'task' => 255][$type];
@@ -166,7 +218,7 @@ class TodoService
             $out['notes'] = $notes === '' ? null : mb_substr($notes, 0, 10000);
         }
         if (array_key_exists('sort_order', $data) && $data['sort_order'] !== null) {
-            $out['sort_order'] = (int) $data['sort_order'];
+            $out['sort_order'] = max(-1000000000, min(1000000000, (int) $data['sort_order']));
         }
 
         if ($type === 'client') {
@@ -178,14 +230,14 @@ class TodoService
         }
         if (array_key_exists('session_id', $data)) {
             $id = $data['session_id'] ?: null;
-            if ($id && !Session::whereKey($id)->exists()) {
+            if ($id && !self::findKey(Session::class, $id)) {
                 throw new InvalidArgumentException('Session not found');
             }
             $out['session_id'] = $id;
         }
         if (array_key_exists('app_tray_item_id', $data)) {
             $id = $data['app_tray_item_id'] ?: null;
-            if ($id && !AppTrayItem::whereKey($id)->exists()) {
+            if ($id && !self::findKey(AppTrayItem::class, $id)) {
                 throw new InvalidArgumentException('App not found in the App Tray');
             }
             $out['app_tray_item_id'] = $id;
@@ -194,7 +246,7 @@ class TodoService
         if ($type === 'project') {
             if (array_key_exists('client_id', $data)) {
                 $id = $data['client_id'] ?: null;
-                if ($id && !TodoClient::whereKey($id)->exists()) {
+                if ($id && !self::findKey(TodoClient::class, $id)) {
                     throw new InvalidArgumentException('Client not found');
                 }
                 $out['client_id'] = $id;
@@ -207,7 +259,7 @@ class TodoService
         if (array_key_exists('parent_id', $data)) {
             $parentId = $data['parent_id'] ?: null;
             if ($parentId) {
-                $parent = TodoTask::find($parentId);
+                $parent = self::findKey(TodoTask::class, $parentId);
                 if (!$parent) {
                     throw new InvalidArgumentException('Parent task not found');
                 }
@@ -222,9 +274,13 @@ class TodoService
             $out['parent_id'] = $parentId;
         }
         $isSubtask = array_key_exists('parent_id', $out) ? (bool) $out['parent_id'] : (bool) $existing?->parent_id;
+        if (array_key_exists('project_id', $data) && $isSubtask && !array_key_exists('parent_id', $data)
+            && ($data['project_id'] ?: null) !== $existing?->project_id) {
+            throw new InvalidArgumentException('A subtask follows its parent: move the parent task, or make it a normal task first (parent = none)');
+        }
         if (array_key_exists('project_id', $data) && !$isSubtask) {
             $id = $data['project_id'] ?: null;
-            if ($id && !TodoProject::whereKey($id)->exists()) {
+            if ($id && !self::findKey(TodoProject::class, $id)) {
                 throw new InvalidArgumentException('Project not found');
             }
             $out['project_id'] = $id;
@@ -239,10 +295,19 @@ class TodoService
         if ($value === '' || in_array(strtolower($value), ['none', 'null', 'geen'], true)) {
             return null;
         }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            $date = Carbon::createFromFormat('!Y-m-d', $value);
+            if (!$date || $date->format('Y-m-d') !== $value) {
+                throw new InvalidArgumentException("Deadline \"{$value}\" is not a valid date");
+            }
+
+            return $value;
+        }
         $aliases = ['vandaag' => 'today', 'morgen' => 'tomorrow', 'overmorgen' => '+2 days'];
         $value = $aliases[strtolower($value)] ?? $value;
         try {
-            return Carbon::parse($value)->format('Y-m-d');
+            // Relative dates ("tomorrow", "next friday") count from the user's local day
+            return Carbon::parse($value, self::timezone())->format('Y-m-d');
         } catch (\Throwable) {
             throw new InvalidArgumentException("Deadline \"{$value}\" not understood; use YYYY-MM-DD, \"tomorrow\", \"next friday\" or \"+3 days\"");
         }

@@ -60,7 +60,7 @@ class TodoController extends Controller
 
     private function find(string $type, string $id)
     {
-        $item = $this->todos->modelClass($type)::find($id);
+        $item = TodoService::findKey($this->todos->modelClass($type), $id);
         if (!$item) {
             throw new InvalidArgumentException('Not found');
         }

@@ -222,7 +222,11 @@ class Conversation extends Model
         $output = (int) ($lastAssistant->output_tokens ?? 0);
         $cacheCreate = (int) ($lastAssistant->cache_creation_tokens ?? 0);
         $cacheRead = (int) ($lastAssistant->cache_read_tokens ?? 0);
-        $ctxInput = max(0, $input - $cacheCreate - $cacheRead);
+        // Claude Code stores the full prompt of the call (uncached + cache read + cache creation)
+        // per message: all of it sits in the context window. Other providers keep the old rule.
+        $ctxInput = $this->provider_type === 'claude_code'
+            ? $input
+            : max(0, $input - $cacheCreate - $cacheRead);
         $newTotal = $ctxInput + $output;
 
         if ((int) ($this->last_context_tokens ?? 0) === $newTotal) {

@@ -10,14 +10,32 @@
                 <x-spinner />
             </div>
 
-            <div x-show="!appTrayLoading && appTrayItems.length === 0" x-cloak class="text-center py-8 text-sm text-gray-400">
+            <div x-show="!appTrayLoading && appTrayItems.length === 0" x-cloak class="text-center py-4 text-sm text-gray-400">
                 <i class="fa-solid fa-grip text-2xl mb-2 block"></i>
                 Nog geen apps. Vraag een agent om er een toe te voegen,<br>
                 bijvoorbeeld: <span class="text-gray-300">"zet deze app in de app tray"</span>.
             </div>
 
-            <div x-show="appTrayItems.length > 0" class="grid gap-3"
+            <div class="grid gap-3"
                  style="grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));">
+                {{-- Built-in: Todo app (clients > projects > tasks), shared with agents via `pd todo` --}}
+                <button type="button" @click="openTodos()" title="Todo - taken van jou en de AI"
+                        class="flex flex-col items-center text-center rounded-xl hover:bg-gray-700 transition-colors cursor-pointer" style="padding: 12px 4px;">
+                    <span class="relative mb-2" style="width: 56px; height: 56px;">
+                        <span class="flex items-center justify-center bg-gray-700 border border-gray-600 text-2xl text-emerald-400"
+                              style="width: 56px; height: 56px; border-radius: 16px;">
+                            <i class="fa-solid fa-list-check"></i>
+                        </span>
+                        <span x-show="appTrayTodo.open" x-cloak
+                              class="absolute flex items-center justify-center rounded-full text-white font-bold border-2 border-gray-800"
+                              :style="'right: -6px; bottom: -6px; min-width: 22px; height: 22px; padding: 0 4px; font-size: 10px; background:' + (appTrayTodo.urgent ? '#dc2626' : '#2563eb')"
+                              :title="appTrayTodo.urgent ? appTrayTodo.urgent + ' vandaag / te laat' : ''"
+                              x-text="appTrayTodo.open"></span>
+                    </span>
+                    <span class="text-gray-100 font-medium leading-tight truncate w-full" style="font-size: 13px;">Todo</span>
+                    <span class="text-gray-400 leading-tight mt-0.5 w-full" style="font-size: 11px;"
+                          x-text="appTrayTodo.open ? appTrayTodo.open + ' open' : 'Taken'"></span>
+                </button>
                 <template x-for="item in appTrayItems" :key="item.id">
                     <a :href="item.url"
                        :target="item.url.startsWith('/') ? '_self' : '_blank'"

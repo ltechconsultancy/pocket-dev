@@ -1366,9 +1366,6 @@
                             title="Sessie- en chatacties">
                         <i class="fa-solid fa-ellipsis-vertical text-lg"></i>
                     </button>
-                    <button @click="openTodos()" class="text-gray-300 hover:text-white p-2 cursor-pointer" title="Todo">
-                        <i class="fa-solid fa-list-check text-lg"></i>
-                    </button>
                     <button @click="openAppTray()" class="text-gray-300 hover:text-white p-2 cursor-pointer" title="Apps">
                         <i class="fa-solid fa-grip text-xl"></i>
                     </button>
@@ -2022,6 +2019,7 @@
                 appTrayItems: [],
                 appTrayLoading: false,
                 appTraySelected: null, // app whose sub-links are shown
+                appTrayTodo: { open: 0, urgent: 0 }, // built-in Todo tile badge
                 // Todo app (modal has its own Alpine scope, see partials/chat/modals/todos)
                 showTodos: false,
                 // Sub-agents of the current session (pill + sheet above the input)
@@ -7603,6 +7601,7 @@
                 // ===== Todo app =====
 
                 openTodos() {
+                    this.showAppTray = false;
                     this.showTodos = true;
                     window.dispatchEvent(new CustomEvent('todos-open'));
                 },
@@ -7632,7 +7631,9 @@
                     try {
                         const response = await fetch('/api/app-tray', { headers: { 'Accept': 'application/json' } });
                         if (response.ok) {
-                            this.appTrayItems = (await response.json()).items || [];
+                            const json = await response.json();
+                            this.appTrayItems = json.items || [];
+                            this.appTrayTodo = json.todo || { open: 0, urgent: 0 };
                         }
                     } catch (e) {
                         // Offline: keep whatever was loaded before

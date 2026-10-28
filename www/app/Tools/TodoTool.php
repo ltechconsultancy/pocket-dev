@@ -42,7 +42,7 @@ class TodoTool extends Tool
     }
 
     public ?string $instructions = <<<'INSTRUCTIONS'
-A simple todo list the user and you share. The user sees it via the checklist button in the PocketDev header and can add and check off items there too.
+A simple todo list the user and you share. The user opens it via the Todo tile in the App Tray (grid button in the PocketDev header) and can add and check off items there too.
 
 Structure: **clients > projects > tasks > subtasks** (one level of subtasks). Tasks without a project live in the Inbox; projects without a client are fine. Tasks and projects can have a deadline and can be linked to a PocketDev session (default: the session you add them from) and to an App Tray app.
 

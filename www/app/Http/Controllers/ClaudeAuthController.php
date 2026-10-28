@@ -73,15 +73,8 @@ class ClaudeAuthController extends Controller
                 ], 422);
             }
 
-            // Create directory if it does not exist
-            $dir = dirname($this->credentialsPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            // Save the file
-            file_put_contents($this->credentialsPath, $content);
-            chmod($this->credentialsPath, 0600);
+            // Save as appuser with mode 0600, like the Claude CLI itself (see AppUserFiles)
+            \App\Support\AppUserFiles::write($this->credentialsPath, $content);
 
             Log::info("[Claude Auth] Credentials file uploaded successfully");
 
@@ -138,15 +131,8 @@ class ClaudeAuthController extends Controller
                 ], 422);
             }
 
-            // Create directory if it does not exist
-            $dir = dirname($this->credentialsPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            // Save the file
-            file_put_contents($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT));
-            chmod($this->credentialsPath, 0600);
+            // Save as appuser with mode 0600, like the Claude CLI itself (see AppUserFiles)
+            \App\Support\AppUserFiles::write($this->credentialsPath, json_encode($data, JSON_PRETTY_PRINT));
 
             Log::info("[Claude Auth] Credentials saved from JSON input");
 
@@ -175,7 +161,7 @@ class ClaudeAuthController extends Controller
     {
         try {
             if (file_exists($this->credentialsPath)) {
-                unlink($this->credentialsPath);
+                \App\Support\AppUserFiles::delete($this->credentialsPath);
                 Log::info("[Claude Auth] Credentials cleared");
             }
 
@@ -209,8 +195,8 @@ class ClaudeAuthController extends Controller
         }
 
         try {
-            $content = file_get_contents($this->credentialsPath);
-            $data = json_decode($content, true);
+            $content = \App\Support\AppUserFiles::read($this->credentialsPath);
+            $data = json_decode((string) $content, true);
 
             if (json_last_error() !== JSON_ERROR_NONE || !isset($data["claudeAiOauth"])) {
                 return [

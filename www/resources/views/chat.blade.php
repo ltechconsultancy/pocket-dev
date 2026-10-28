@@ -2019,6 +2019,9 @@
                 appTrayItems: [],
                 appTrayLoading: false,
                 appTraySelected: null, // app whose sub-links are shown
+                appTrayTodo: { open: 0, urgent: 0 }, // built-in Todo tile badge
+                // Todo app (modal has its own Alpine scope, see partials/chat/modals/todos)
+                showTodos: false,
                 // Sub-agents of the current session (pill + sheet above the input)
                 subagents: { running: 0, items: [] },
                 showSubagentSheet: false,
@@ -7595,6 +7598,14 @@
                     this.refreshSubagents();
                 },
 
+                // ===== Todo app =====
+
+                openTodos() {
+                    this.showAppTray = false;
+                    this.showTodos = true;
+                    window.dispatchEvent(new CustomEvent('todos-open'));
+                },
+
                 // ===== App Tray =====
 
                 openAppTray() {
@@ -7620,7 +7631,9 @@
                     try {
                         const response = await fetch('/api/app-tray', { headers: { 'Accept': 'application/json' } });
                         if (response.ok) {
-                            this.appTrayItems = (await response.json()).items || [];
+                            const json = await response.json();
+                            this.appTrayItems = json.items || [];
+                            this.appTrayTodo = json.todo || { open: 0, urgent: 0 };
                         }
                     } catch (e) {
                         // Offline: keep whatever was loaded before

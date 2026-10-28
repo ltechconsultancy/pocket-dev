@@ -436,6 +436,12 @@ Route::prefix('api')->group(function () {
     // App Tray (link tiles added by agents via `pd app-tray`)
     Route::get('app-tray', [\App\Http\Controllers\Api\AppTrayController::class, 'index']);
 
+    // Todo app (clients > projects > tasks > subtasks); agents use `pd todo`
+    Route::get('todos', [\App\Http\Controllers\Api\TodoController::class, 'index']);
+    Route::post('todos/{type}', [\App\Http\Controllers\Api\TodoController::class, 'store'])->whereIn('type', ['client', 'project', 'task']);
+    Route::patch('todos/{type}/{id}', [\App\Http\Controllers\Api\TodoController::class, 'update'])->whereIn('type', ['client', 'project', 'task'])->whereUuid('id');
+    Route::delete('todos/{type}/{id}', [\App\Http\Controllers\Api\TodoController::class, 'destroy'])->whereIn('type', ['client', 'project', 'task'])->whereUuid('id');
+
     Route::prefix('settings')->group(function () {
         Route::get('chat-defaults', [SettingsController::class, 'chatDefaults']);
         Route::post('chat-defaults', [SettingsController::class, 'updateChatDefaults']);

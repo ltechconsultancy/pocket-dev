@@ -22,6 +22,12 @@ class ClaudeAccountController extends Controller
         return $this->run(fn() => $this->accounts->list());
     }
 
+    /** One ring per account in the header. */
+    public function usage(\App\Services\ClaudeCodeUsageService $usage): JsonResponse
+    {
+        return response()->json(['accounts' => $usage->forAccounts()]);
+    }
+
     public function switch(string $id): JsonResponse
     {
         return $this->run(fn() => $this->accounts->switchTo($id));

@@ -2014,6 +2014,7 @@
                 showClaudeUsage: false,
                 // Saved Claude Code accounts (switcher in the usage popover)
                 claudeAccounts: { accounts: [], pending_login: false, busy: false, error: '' },
+                claudeRings: [], // usage per saved account: [{ id, label, email, short, active, five_hour, seven_day }]
                 // Theme: 'classic' | 'brutal-light' | 'brutal-dark' (per device, see partials/pwa-head)
                 theme: document.documentElement.getAttribute('data-theme') || 'classic',
                 // App Tray (link tiles added by agents via `pd app-tray`)
@@ -7346,10 +7347,10 @@
 
                 async switchClaudeAccount(account) {
                     if (account.active || this.claudeAccounts.busy) return;
-                    if (!confirm(`Wisselen naar ${account.label}?\n\nNieuwe beurten gebruiken dit account. Een chat die nu loopt maakt zijn beurt af op het huidige account.`)) return;
+                    if (!confirm(`Wisselen naar ${account.email || account.label}?\n\nNieuwe beurten gebruiken dit account. Een chat die nu loopt maakt zijn beurt af op het huidige account.`)) return;
                     if (await this.claudeAccountsCall('POST', `/api/claude-accounts/${account.id}/switch`)) {
-                        this.claudeUsage = { five_hour: null, seven_day: null, fetched_at: null };
-                        this.refreshClaudeUsageNow();
+                        this.showClaudeUsage = false;
+                        await this.fetchClaudeRings();
                     }
                 },
 
@@ -7380,8 +7381,41 @@
                     } catch (e) {}
                 },
 
+                // Rings in the header: one per account when there are several, else the single ring
+                claudeRingsToShow() {
+                    if (this.claudeRings.length > 1) return this.claudeRings;
+                    return [{ id: 'single', short: '', active: true, label: '', five_hour: this.claudeUsage.five_hour, seven_day: this.claudeUsage.seven_day }];
+                },
+
+                claudeRingTitle(ring) {
+                    if (ring.id === 'single') return this.claudeUsageTitle();
+                    const pct = (w) => w ? Math.round(w.percent) + '%' : '?';
+                    const who = ring.email || ring.label;
+                    return `${who}: 5 uur ${pct(ring.five_hour)}, week ${pct(ring.seven_day)}`
+                        + (ring.active ? ' (actief, tik voor details)' : ' (tik om te wisselen)');
+                },
+
+                async fetchClaudeRings() {
+                    try {
+                        const response = await fetch('/api/claude-accounts/usage', { headers: { 'Accept': 'application/json' } });
+                        if (!response.ok) return;
+                        const win = (w) => w && w.utilization !== undefined && w.utilization !== null
+                            ? { percent: Number(w.utilization), resets_at: w.resets_at } : null;
+                        this.claudeRings = ((await response.json()).accounts || []).map(a => ({
+                            ...a, five_hour: win(a.five_hour), seven_day: win(a.seven_day)
+                        }));
+                        const active = this.claudeRings.find(r => r.active);
+                        if (active && (active.five_hour || active.seven_day)) {
+                            this.claudeUsage = { five_hour: active.five_hour, seven_day: active.seven_day, fetched_at: active.fetched_at || new Date().toISOString() };
+                        }
+                    } catch (e) {
+                        // Offline: keep the last values
+                    }
+                },
+
                 async refreshClaudeUsage() {
                     if (!document.hidden) {
+                        await this.fetchClaudeRings();
                         try {
                             const response = await fetch('/api/usage/claude-limits', { headers: { 'Accept': 'application/json' } });
                             const data = response.ok ? await response.json() : null;

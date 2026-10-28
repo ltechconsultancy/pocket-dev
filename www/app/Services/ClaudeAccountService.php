@@ -193,6 +193,45 @@ class ClaudeAccountService
         return $this->list();
     }
 
+    public function activeId(): ?string
+    {
+        try {
+            return $this->readIndex()['active_id'];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Saved accounts with their current access token (live file for the active one), for the
+     * per-account usage rings. Tokens never leave the server.
+     */
+    public function withTokens(): array
+    {
+        $index = $this->readIndex();
+        $live = $this->readLive();
+
+        return array_map(function (array $a) use ($index, $live) {
+            $isActive = $a['id'] === $index['active_id'];
+            $oauth = ($isActive ? $live : $this->readSlot($a['id']))['claudeAiOauth'] ?? [];
+            $email = $a['email'] ?? null;
+            // Letter in the ring: domain initial tells "bart@zeroplex" and "info@ltech" apart
+            $short = $email && str_contains($email, '@')
+                ? mb_strtoupper(mb_substr(explode('@', $email)[1], 0, 1))
+                : mb_strtoupper(mb_substr($a['label'], 0, 1));
+
+            return [
+                'id' => $a['id'],
+                'label' => $a['label'],
+                'email' => $email,
+                'short' => $short,
+                'active' => $isActive,
+                'access_token' => $oauth['accessToken'] ?? null,
+                'expires_at' => $oauth['expiresAt'] ?? null,
+            ];
+        }, $index['accounts']);
+    }
+
     // ===== Internals =====
 
     private function adopt(array $index, array $live): array

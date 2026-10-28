@@ -2012,6 +2012,8 @@
                 // A reload in that window would drop them from view: { [uuid]: [{ content, at }] }
                 _pendingUserMessages: {},
                 showClaudeUsage: false,
+                // Saved Claude Code accounts (switcher in the usage popover)
+                claudeAccounts: { accounts: [], pending_login: false, busy: false, error: '' },
                 // Theme: 'classic' | 'brutal-light' | 'brutal-dark' (per device, see partials/pwa-head)
                 theme: document.documentElement.getAttribute('data-theme') || 'classic',
                 // App Tray (link tiles added by agents via `pd app-tray`)
@@ -2488,6 +2490,7 @@
                     this.refreshSubagents();
                     this.refreshRunningSubagents();
                     this.refreshClaudeUsage();
+                    this.loadClaudeAccounts();
                     this.$watch('conversationProvider', () => this.refreshRemoteControl());
                     this.$watch('activeScreenId', () => this.refreshRemoteControl());
 
@@ -7310,6 +7313,73 @@
                 // ===== Claude usage rings =====
 
                 // Same data as Settings > Usage (server caches it for 5 minutes)
+                async claudeAccountsCall(method, url) {
+                    this.claudeAccounts.busy = true;
+                    this.claudeAccounts.error = '';
+                    try {
+                        const response = await fetch(url, {
+                            method,
+                            headers: {
+                                'Accept': 'application/json',
+                                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content || ''
+                            }
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok || data.ok === false) {
+                            this.claudeAccounts.error = data.error || 'Mislukt';
+                            return false;
+                        }
+                        this.claudeAccounts.accounts = data.accounts || [];
+                        this.claudeAccounts.pending_login = !!data.pending_login;
+                        return true;
+                    } catch (e) {
+                        this.claudeAccounts.error = 'Geen verbinding';
+                        return false;
+                    } finally {
+                        this.claudeAccounts.busy = false;
+                    }
+                },
+
+                loadClaudeAccounts() {
+                    return this.claudeAccountsCall('GET', '/api/claude-accounts');
+                },
+
+                async switchClaudeAccount(account) {
+                    if (account.active || this.claudeAccounts.busy) return;
+                    if (!confirm(`Wisselen naar ${account.label}?\n\nNieuwe beurten gebruiken dit account. Een chat die nu loopt maakt zijn beurt af op het huidige account.`)) return;
+                    if (await this.claudeAccountsCall('POST', `/api/claude-accounts/${account.id}/switch`)) {
+                        this.claudeUsage = { five_hour: null, seven_day: null, fetched_at: null };
+                        this.refreshClaudeUsageNow();
+                    }
+                },
+
+                async addClaudeAccount() {
+                    if (!confirm('Ander Claude-account toevoegen?\n\nHet huidige account wordt bewaard en uitgelogd. Log daarna in met het andere account; daarna kun je hier wisselen.')) return;
+                    await this.claudeAccountsCall('POST', '/api/claude-accounts/add');
+                },
+
+                cancelAddClaudeAccount() {
+                    return this.claudeAccountsCall('POST', '/api/claude-accounts/add/cancel');
+                },
+
+                async removeClaudeAccount(account) {
+                    if (!confirm(`${account.label} verwijderen uit de lijst? Je kunt later opnieuw inloggen.`)) return;
+                    await this.claudeAccountsCall('DELETE', `/api/claude-accounts/${account.id}`);
+                },
+
+                // One immediate refresh, without starting another 2-minute timer
+                async refreshClaudeUsageNow() {
+                    try {
+                        const response = await fetch('/api/usage/claude-limits', { headers: { 'Accept': 'application/json' } });
+                        const data = response.ok ? await response.json() : null;
+                        if (data?.available) {
+                            const win = (w) => w && w.utilization !== undefined && w.utilization !== null
+                                ? { percent: Number(w.utilization), resets_at: w.resets_at } : null;
+                            this.claudeUsage = { five_hour: win(data.five_hour), seven_day: win(data.seven_day), fetched_at: new Date().toISOString() };
+                        }
+                    } catch (e) {}
+                },
+
                 async refreshClaudeUsage() {
                     if (!document.hidden) {
                         try {

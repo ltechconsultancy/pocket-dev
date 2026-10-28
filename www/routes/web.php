@@ -365,6 +365,14 @@ Route::prefix('api')->group(function () {
 
     Route::get('usage/summary', [\App\Http\Controllers\Api\UsageDashboardController::class, 'summary']);
     Route::get('usage/claude-limits', [\App\Http\Controllers\Api\UsageDashboardController::class, 'claudeLimits']);
+
+    // Several Claude Code subscription accounts, one active (switch from the usage popover)
+    Route::get('claude-accounts', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'index']);
+    Route::post('claude-accounts/add', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'add']);
+    Route::post('claude-accounts/add/cancel', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'cancelAdd']);
+    Route::post('claude-accounts/{id}/switch', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'switch'])->whereUuid('id');
+    Route::patch('claude-accounts/{id}', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'update'])->whereUuid('id');
+    Route::delete('claude-accounts/{id}', [\App\Http\Controllers\Api\ClaudeAccountController::class, 'destroy'])->whereUuid('id');
     Route::get('usage/storage', [\App\Http\Controllers\Api\UsageDashboardController::class, 'storage']);
     Route::get('usage/cursor-limits', [\App\Http\Controllers\Api\UsageDashboardController::class, 'cursorLimits']);
 

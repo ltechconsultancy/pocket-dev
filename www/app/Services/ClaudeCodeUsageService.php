@@ -11,6 +11,9 @@ class ClaudeCodeUsageService
     private const CREDENTIALS_PATH = '/home/appuser/.claude/.credentials.json';
     private const CACHE_KEY = 'claude_code_usage_limits';
     private const CACHE_TTL = 300; // 5 minutes
+    private const LAST_GOOD_KEY = 'claude_code_usage_limits_last_good';
+    private const BACKOFF_KEY = 'claude_code_usage_limits_backoff';
+    private const BACKOFF_SECONDS = 300; // wait at least 5 minutes after a failed call
     private const API_URL = 'https://api.anthropic.com/api/oauth/usage';
 
     /**
@@ -39,32 +42,83 @@ class ClaudeCodeUsageService
             return null;
         }
 
-        return Cache::remember(self::CACHE_KEY, self::CACHE_TTL, function () use ($creds) {
-            try {
-                $response = Http::withToken($creds['accessToken'])
-                    ->withHeaders([
-                        'anthropic-beta' => 'oauth-2025-04-20',
-                    ])
-                    ->timeout(5)
-                    ->get(self::API_URL);
+        $fresh = Cache::get(self::CACHE_KEY);
+        if ($fresh !== null) {
+            return $fresh;
+        }
 
-                if ($response->ok()) {
-                    return $response->json();
-                }
+        // After a failure (e.g. 429) wait before calling again: without this every open tab
+        // retried immediately and kept the rate limit alive. Meanwhile serve the last good data.
+        if (Cache::has(self::BACKOFF_KEY)) {
+            return Cache::get(self::LAST_GOOD_KEY);
+        }
 
-                Log::warning('Claude Code usage API returned non-OK', [
-                    'status' => $response->status(),
-                ]);
+        try {
+            $response = Http::withToken($creds['accessToken'])
+                ->withHeaders([
+                    'anthropic-beta' => 'oauth-2025-04-20',
+                ])
+                ->timeout(5)
+                ->get(self::API_URL);
 
-                return null;
-            } catch (\Exception $e) {
-                Log::warning('Claude Code usage API request failed', [
-                    'error' => $e->getMessage(),
-                ]);
+            if ($response->ok() && is_array($data = $response->json())) {
+                Cache::put(self::CACHE_KEY, $data, self::CACHE_TTL);
+                Cache::put(self::LAST_GOOD_KEY, $data, now()->addDay());
 
-                return null;
+                return $data;
             }
-        });
+
+            $retryAfter = (int) $response->header('Retry-After');
+            $backoff = max(self::BACKOFF_SECONDS, min($retryAfter, 3600));
+            Log::warning('Claude Code usage API returned non-OK', [
+                'status' => $response->status(),
+                'backoff_seconds' => $backoff,
+            ]);
+        } catch (\Exception $e) {
+            $backoff = self::BACKOFF_SECONDS;
+            Log::warning('Claude Code usage API request failed', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        Cache::put(self::BACKOFF_KEY, true, $backoff);
+
+        return Cache::get(self::LAST_GOOD_KEY);
+    }
+
+    /**
+     * Store utilization from a Claude Code CLI `rate_limit_event` (sent on every turn):
+     * {"unifiedWindows": {"five_hour": {"utilization": 0.41, "resetsAt": 1792709400}, "seven_day": {...}}}
+     * Converted to the usage API shape (utilization in percent, resets_at ISO 8601).
+     */
+    public function recordFromCli(array $info): void
+    {
+        $windows = $info['unifiedWindows'] ?? null;
+        if (!is_array($windows)) {
+            return;
+        }
+
+        $data = Cache::get(self::CACHE_KEY) ?? Cache::get(self::LAST_GOOD_KEY) ?? [];
+        $found = false;
+        foreach (['five_hour', 'seven_day'] as $key) {
+            $w = $windows[$key] ?? null;
+            if (!is_array($w) || !is_numeric($w['utilization'] ?? null)) {
+                continue;
+            }
+            $data[$key] = [
+                'utilization' => round((float) $w['utilization'] * 100, 1),
+                'resets_at' => is_numeric($w['resetsAt'] ?? null)
+                    ? \Carbon\Carbon::createFromTimestamp((int) $w['resetsAt'])->toIso8601String()
+                    : ($data[$key]['resets_at'] ?? null),
+            ];
+            $found = true;
+        }
+        if (!$found) {
+            return;
+        }
+
+        Cache::put(self::CACHE_KEY, $data, self::CACHE_TTL);
+        Cache::put(self::LAST_GOOD_KEY, $data, now()->addDay());
     }
 
     /**
@@ -73,6 +127,7 @@ class ClaudeCodeUsageService
     public function refresh(): ?array
     {
         Cache::forget(self::CACHE_KEY);
+        Cache::forget(self::BACKOFF_KEY);
 
         return $this->getUtilization();
     }

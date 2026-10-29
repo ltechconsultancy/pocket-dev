@@ -56,8 +56,18 @@
             :style="'bottom: ' + (parseInt(mobileInputHeight) + 16) + 'px'"
             title="Attach files">
 
-        {{-- Main Icon (spinner when uploading) --}}
-        <x-spinner x-show="isUploading" class="text-white text-base" x-cloak />
+        {{-- Main Icon: progress ring + % while uploading --}}
+        <template x-if="isUploading">
+            <span class="relative flex items-center justify-center" style="width: 40px; height: 40px;">
+                <svg viewBox="0 0 40 40" width="40" height="40" class="absolute inset-0" style="transform: rotate(-90deg);">
+                    <circle cx="20" cy="20" r="17" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="3"></circle>
+                    <circle cx="20" cy="20" r="17" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"
+                            :stroke-dasharray="(2 * Math.PI * 17).toFixed(2)"
+                            :stroke-dashoffset="((2 * Math.PI * 17) * (1 - attachments.uploadPercent / 100)).toFixed(2)"></circle>
+                </svg>
+                <span class="relative text-white font-bold" style="font-size: 10px;" x-text="attachments.uploadPercent + '%'"></span>
+            </span>
+        </template>
         <i x-show="!isUploading" class="fa-solid fa-paperclip text-white text-base"></i>
 
         {{-- Badge --}}
@@ -106,6 +116,10 @@
                         <div class="flex-1 min-w-0 mr-3">
                             <p class="text-sm text-gray-200 truncate" x-text="file.filename"></p>
                             <p class="text-xs text-gray-400" x-text="file.uploading ? file.sizeFormatted + ' · ' + (file.progress || 0) + '%' + (file.paused ? ' · wacht op verbinding, gaat zo verder' : '') : file.sizeFormatted"></p>
+                                    <div x-show="file.uploading" class="mt-1.5 rounded-full overflow-hidden bg-gray-600" style="height: 6px;"
+                                         role="progressbar" :aria-valuenow="file.progress || 0" aria-valuemin="0" aria-valuemax="100">
+                                        <div class="h-full rounded-full bg-blue-500 transition-all duration-300" :style="'width: ' + (file.progress || 0) + '%'"></div>
+                                    </div>
                             <p x-show="file.error" class="text-xs text-red-400 mt-1" x-text="file.error"></p>
                         </div>
                         <div class="flex items-center gap-3">

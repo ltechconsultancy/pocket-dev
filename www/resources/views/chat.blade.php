@@ -524,6 +524,7 @@
                 files: [],           // Array of { id, path, filename, size, sizeFormatted, uploading, progress, error }
                 _xhrs: {},           // id -> { uploadId, xhr, cancelled } of a running upload (for cancel)
                 _wakeLock: null,
+                _lastNotified: null,
                 _wakeListener: null,
                 maxFileSizeMb: {{ config('uploads.max_size_mb', 250) }},  // From server config
                 showModal: false,    // Global modal state - can be triggered from drag-and-drop
@@ -538,6 +539,14 @@
 
                 get isUploading() {
                     return this.files.some(f => f.uploading);
+                },
+
+                // Overall % of running uploads (by bytes), for the attach button
+                get uploadPercent() {
+                    const up = this.files.filter(f => f.uploading);
+                    const total = up.reduce((n, f) => n + (f.size || 0), 0);
+                    if (!total) return 0;
+                    return Math.floor(up.reduce((n, f) => n + (f.size || 0) * (f.progress || 0) / 100, 0) / total * 100);
                 },
 
                 get badgeText() {
@@ -592,9 +601,17 @@
                     };
 
                     try {
-                        const data = await this.uploadInChunks(file, job, (loaded) => {
-                            patch({ progress: file.size ? Math.min(99, Math.floor((loaded / file.size) * 100)) : 0 });
-                        }, (waiting) => patch({ paused: waiting }));
+                        const onProgress = (loaded) => {
+                            const pct = file.size ? Math.min(99, Math.floor((loaded / file.size) * 100)) : 0;
+                            patch({ progress: pct });
+                            this._notifyProgress(file.name, pct);
+                        };
+                        // Android Chrome: hand the upload to the browser so it goes on in the background
+                        let data = await this.uploadBackground(file, job, onProgress, id);
+                        if (!data || !data.done) {
+                            data = await this.uploadInChunks(file, job, onProgress, (waiting) => patch({ paused: waiting }), data?.resume || []);
+                        }
+                        this._notifyProgress(file.name, 100);
 
                         if (!patch({ path: data.path, sizeFormatted: data.size_formatted, uploading: false, paused: false, progress: 100 })) {
                             // Entry was removed during upload - clean up orphaned server file
@@ -609,6 +626,7 @@
                             }
                         }
                     } catch (err) {
+                        this._notifyProgress(file.name, null);
                         if (err.cancelled) {
                             // Cancelled by the user: the entry is already gone
                             this.files = this.files.filter(f => f.id !== id);
@@ -618,11 +636,180 @@
                         }
                     } finally {
                         delete this._xhrs[id];
+                        this._forgetBg(job.uploadId);
                         this.keepAwake();
                     }
                 },
 
                 chunkSize: 8 * 1024 * 1024,
+
+                // ===== Android: Background Fetch =====
+                // Chrome takes over the chunk requests: they keep going with the app in the background
+                // or the screen off, with Chrome's own progress notification. Whatever did not arrive
+                // (failure, other browser) is sent by uploadInChunks afterwards.
+
+                async _swReg() {
+                    if (!('serviceWorker' in navigator) || !('BackgroundFetchManager' in window)) return null;
+                    try {
+                        const reg = await Promise.race([navigator.serviceWorker.ready, new Promise(r => setTimeout(() => r(null), 3000))]);
+                        return reg && reg.backgroundFetch ? reg : null;
+                    } catch (e) {
+                        return null;
+                    }
+                },
+
+                async uploadBackground(file, job, onProgress, entryId) {
+                    if (file.size < 16 * 1024 * 1024) return null; // small files: in-app is quicker
+                    const reg = await this._swReg();
+                    if (!reg) return null;
+
+                    const count = Math.max(1, Math.ceil(file.size / this.chunkSize));
+                    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                    const requests = [];
+                    for (let i = 0; i < count; i++) {
+                        const start = i * this.chunkSize;
+                        requests.push(new Request(this._chunkUrl(job, file, i), {
+                            method: 'POST',
+                            body: file.slice(start, Math.min(file.size, start + this.chunkSize)),
+                            headers: { 'Content-Type': 'application/octet-stream', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
+                            credentials: 'same-origin',
+                        }));
+                    }
+
+                    let bg;
+                    try {
+                        bg = await reg.backgroundFetch.fetch('upload-' + job.uploadId, requests, {
+                            title: 'Uploaden: ' + file.name,
+                            icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }],
+                        });
+                    } catch (e) {
+                        console.warn('[upload] Background Fetch refused, uploading in the app', e);
+                        return null;
+                    }
+                    job.bg = bg;
+                    job.background = true;
+                    this._rememberBg({ entryId, uploadId: job.uploadId, filename: file.name, size: file.size });
+
+                    const result = await this._watchBg(bg, onProgress);
+                    if (job.cancelled) throw Object.assign(new Error('cancelled'), { cancelled: true });
+                    try {
+                        const st = await this._status(job);
+                        if (st && st.done) return st;
+                        return { resume: (st && st.received_chunks) || [] };
+                    } catch (e) {
+                        return { resume: [] };
+                    } finally {
+                        void result;
+                    }
+                },
+
+                _watchBg(bg, onProgress) {
+                    return new Promise((resolve) => {
+                        const tick = () => {
+                            if (onProgress && bg.uploadTotal) onProgress(bg.uploaded);
+                            if (bg.result) {
+                                bg.removeEventListener('progress', tick);
+                                resolve(bg.result);
+                            }
+                        };
+                        bg.addEventListener('progress', tick);
+                        tick();
+                    });
+                },
+
+                // Pending background uploads survive a page reload (the app was swiped away)
+                _rememberBg(item) {
+                    try {
+                        const list = JSON.parse(localStorage.getItem('pd-bg-uploads') || '[]').filter(x => x.uploadId !== item.uploadId);
+                        list.push({ ...item, at: Date.now() });
+                        localStorage.setItem('pd-bg-uploads', JSON.stringify(list));
+                    } catch (e) {}
+                },
+
+                _forgetBg(uploadId) {
+                    try {
+                        const list = JSON.parse(localStorage.getItem('pd-bg-uploads') || '[]').filter(x => x.uploadId !== uploadId);
+                        localStorage.setItem('pd-bg-uploads', JSON.stringify(list));
+                    } catch (e) {}
+                },
+
+                // After a reload: show background uploads again, and their result once Chrome is done
+                async init() {
+                    let list = [];
+                    try { list = JSON.parse(localStorage.getItem('pd-bg-uploads') || '[]'); } catch (e) {}
+                    list = list.filter(x => Date.now() - (x.at || 0) < 86400000);
+                    if (!list.length) return;
+                    const reg = await this._swReg();
+
+                    for (const item of list) {
+                        if (this.files.some(f => f.id === item.entryId)) continue; // still running in this page
+                        const job = { uploadId: item.uploadId, xhr: null, cancelled: false };
+                        const entry = {
+                            id: item.entryId, filename: item.filename, size: item.size,
+                            sizeFormatted: this.formatSize(item.size), path: null,
+                            uploading: true, progress: 0, paused: false, error: null,
+                        };
+                        this.files.push(entry);
+                        const patch = (fields) => {
+                            const idx = this.files.findIndex(f => f.id === item.entryId);
+                            if (idx !== -1) this.files[idx] = { ...this.files[idx], ...fields };
+                            return idx !== -1;
+                        };
+                        this._xhrs[item.entryId] = job;
+
+                        (async () => {
+                            try {
+                                const bg = reg ? await reg.backgroundFetch.get('upload-' + item.uploadId) : null;
+                                if (bg) {
+                                    job.bg = bg;
+                                    await this._watchBg(bg, (loaded) => patch({ progress: Math.min(99, Math.floor((loaded / item.size) * 100)) }));
+                                }
+                                if (job.cancelled) return;
+                                const st = await this._status(job);
+                                if (st && st.done) {
+                                    patch({ path: st.path, sizeFormatted: st.size_formatted, uploading: false, progress: 100 });
+                                } else {
+                                    // The file itself is gone with the closed page: it has to be picked again
+                                    patch({ uploading: false, error: 'Upload onderbroken. Kies het bestand opnieuw.' });
+                                    const form = new FormData();
+                                    form.append('upload_id', item.uploadId);
+                                    this._post('/api/file/upload-cancel', form, null).catch(() => {});
+                                }
+                            } catch (e) {
+                                patch({ uploading: false, error: 'Upload onderbroken. Kies het bestand opnieuw.' });
+                            } finally {
+                                delete this._xhrs[item.entryId];
+                                this._forgetBg(item.uploadId);
+                            }
+                        })();
+                    }
+                },
+
+                // Notification with the percentage (uploads in the app; Background Fetch has its own)
+                async _notifyProgress(name, pct) {
+                    try {
+                        const busy = Object.values(this._xhrs).some(j => !j.background);
+                        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+                        const reg = await navigator.serviceWorker?.getRegistration();
+                        if (!reg) return;
+                        if (pct === null || pct >= 100) {
+                            (await reg.getNotifications({ tag: 'pd-upload' })).forEach(n => n.close());
+                            if (pct === 100 && document.visibilityState !== 'visible') {
+                                reg.showNotification('Upload klaar', { body: name, tag: 'pd-upload', icon: '/icons/icon-192.png', silent: true });
+                            }
+                            return;
+                        }
+                        if (!busy) return;
+                        const step = Math.floor(pct / 5) * 5; // update every 5%
+                        if (this._lastNotified === name + step) return;
+                        this._lastNotified = name + step;
+                        const bar = '▓'.repeat(Math.round(step / 10)) + '░'.repeat(10 - Math.round(step / 10));
+                        reg.showNotification(`Uploaden ${step}%`, {
+                            body: `${bar}  ${name}`, tag: 'pd-upload', icon: '/icons/icon-192.png',
+                            silent: true, renotify: false,
+                        });
+                    } catch (e) {}
+                },
 
                 _post(url, form, job, onProgress) {
                     return new Promise((resolve, reject) => {
@@ -630,6 +817,7 @@
                         if (job) job.xhr = xhr;
                         xhr.open('POST', url);
                         xhr.setRequestHeader('Accept', 'application/json');
+                        if (form instanceof Blob) xhr.setRequestHeader('Content-Type', 'application/octet-stream');
                         const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
                         if (csrf) xhr.setRequestHeader('X-CSRF-TOKEN', csrf);
                         if (onProgress) xhr.upload.onprogress = (e) => onProgress(e.loaded);
@@ -663,34 +851,55 @@
                     });
                 },
 
-                async uploadInChunks(file, job, onProgress, onPaused) {
-                    let offset = 0;
+                _chunkUrl(job, file, index) {
+                    const q = new URLSearchParams({
+                        upload_id: job.uploadId, filename: file.name, total_size: String(file.size),
+                        chunk_size: String(this.chunkSize), index: String(index),
+                    });
+                    return '/api/file/upload-chunk?' + q.toString();
+                },
+
+                async _status(job) {
+                    const form = new FormData();
+                    form.append('upload_id', job.uploadId);
+                    const res = await this._post('/api/file/upload-status', form, null);
+                    return res.status === 200 ? res.data : null;
+                },
+
+                // Send the chunks the server does not have yet (all of them the first time)
+                async uploadInChunks(file, job, onProgress, onPaused, have = []) {
+                    const count = Math.max(1, Math.ceil(file.size / this.chunkSize));
+                    const done = new Set(have);
                     let failures = 0;
+                    const sentBytes = () => [...done].reduce((n, i) => n + Math.min(this.chunkSize, file.size - i * this.chunkSize), 0);
+
                     while (true) {
                         if (job.cancelled) throw Object.assign(new Error('cancelled'), { cancelled: true });
-                        const end = Math.min(file.size, offset + this.chunkSize);
-                        const form = new FormData();
-                        form.append('upload_id', job.uploadId);
-                        form.append('filename', file.name);
-                        form.append('offset', String(offset));
-                        form.append('total_size', String(file.size));
-                        form.append('chunk', file.slice(offset, end), 'chunk');
+                        const index = [...Array(count).keys()].find(i => !done.has(i));
+                        if (index === undefined) {
+                            // All sent: the server has the file (status gives the path)
+                            const st = await this._status(job);
+                            if (st && st.done) return st;
+                            throw new Error('Upload failed (incomplete on server)');
+                        }
+                        const start = index * this.chunkSize;
+                        const blob = file.slice(start, Math.min(file.size, start + this.chunkSize));
+                        const base = sentBytes();
 
                         let res;
                         try {
-                            res = await this._post('/api/file/upload-chunk', form, job, (loaded) => onProgress(offset + loaded));
+                            res = await this._post(this._chunkUrl(job, file, index), blob, job, (loaded) => onProgress(base + loaded));
                         } catch (err) {
                             if (err.cancelled || job.cancelled) throw Object.assign(new Error('cancelled'), { cancelled: true });
-                            // Network gone or app suspended: wait, then resume from what the server has
+                            // Network gone or app suspended: wait, then continue with what the server lacks
                             if (++failures > 30) throw new Error('Upload failed (network error)');
                             onPaused(true);
                             await new Promise(r => setTimeout(r, Math.min(15000, 1000 * failures)));
                             await this._waitUntilResumable(job);
-                            const statusForm = new FormData();
-                            statusForm.append('upload_id', job.uploadId);
                             try {
-                                const st = await this._post('/api/file/upload-status', statusForm, job);
-                                if (st.status === 200 && st.data) offset = st.data.received || 0;
+                                const st = await this._status(job);
+                                if (st && st.done) { onPaused(false); return st; }
+                                if (st) (st.received_chunks || []).forEach(i => done.add(i));
                             } catch (e) {
                                 if (e.cancelled) throw e;
                             }
@@ -698,24 +907,21 @@
                             continue;
                         }
 
-                        if (res.status === 409 && res.data && typeof res.data.received === 'number') {
-                            offset = res.data.received; // server has a different amount: continue from there
+                        if (res.status >= 200 && res.status < 300 && res.data && res.data.success) {
+                            failures = 0;
+                            if (res.data.done) return res.data;
+                            (res.data.received_chunks || [index]).forEach(i => done.add(i));
+                            onProgress(sentBytes());
                             continue;
                         }
-                        if (res.status < 200 || res.status >= 300 || !res.data || !res.data.success) {
-                            let msg = (res.data && (res.data.message || res.data.error)) || null;
-                            if (!msg) {
-                                msg = res.status === 413 ? 'File too large for server to process.'
-                                    : res.status === 422 ? 'File too large. Maximum size is {{ config("uploads.max_size_mb", 250) }}MB.'
-                                    : `Upload failed (${res.status})`;
-                            }
-                            throw new Error(msg);
+                        if (res.status === 400 && ++failures <= 30) continue; // chunk arrived cut off: resend
+                        let msg = (res.data && (res.data.message || res.data.error)) || null;
+                        if (!msg) {
+                            msg = res.status === 413 ? 'File too large for server to process.'
+                                : res.status === 422 ? 'File too large. Maximum size is {{ config("uploads.max_size_mb", 250) }}MB.'
+                                : `Upload failed (${res.status})`;
                         }
-
-                        failures = 0;
-                        if (res.data.done) return res.data;
-                        offset = res.data.received;
-                        onProgress(offset);
+                        throw new Error(msg);
                     }
                 },
 
@@ -746,6 +952,8 @@
                     if (!job) return;
                     job.cancelled = true;
                     if (job.xhr) job.xhr.abort();
+                    if (job.bg) job.bg.abort().catch(() => {});
+                    this._forgetBg(job.uploadId);
                     const form = new FormData();
                     form.append('upload_id', job.uploadId);
                     this._post('/api/file/upload-cancel', form, null).catch(() => {});

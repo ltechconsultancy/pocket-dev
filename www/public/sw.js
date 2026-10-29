@@ -20,7 +20,7 @@
  */
 'use strict';
 
-const VERSION = 'v5-update';
+const VERSION = 'v6-bgupload';
 const SHELL_CACHE = 'pocketdev-shell-' + VERSION;
 const ASSET_CACHE = 'pocketdev-assets-' + VERSION;
 const OFFLINE_URL = '/offline.html';
@@ -147,4 +147,29 @@ self.addEventListener('notificationclick', (event) => {
             return clients.openWindow(fullUrl);
         })
     );
+});
+
+
+// ============================================================================
+// Background uploads (Android Chrome Background Fetch)
+// ============================================================================
+// The page hands big uploads to Chrome (chunk requests to /api/file/upload-chunk), so they keep
+// going with the app in the background. Chrome shows its own progress notification; here we only
+// set the final text and open the app on tap. The page reads the result from the server.
+
+self.addEventListener('backgroundfetchsuccess', (event) => {
+    event.waitUntil(event.updateUI({ title: 'Upload klaar' }).catch(() => {}));
+});
+
+self.addEventListener('backgroundfetchfail', (event) => {
+    event.waitUntil(event.updateUI({ title: 'Upload onderbroken: open PocketDev om af te maken' }).catch(() => {}));
+});
+
+self.addEventListener('backgroundfetchclick', (event) => {
+    event.waitUntil((async () => {
+        const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        const win = wins.find((w) => new URL(w.url).origin === self.location.origin);
+        if (win) return win.focus();
+        return self.clients.openWindow('/');
+    })());
 });

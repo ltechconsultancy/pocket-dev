@@ -127,7 +127,7 @@
                             <div class="flex items-center justify-between p-3 bg-gray-700 rounded-lg">
                                 <div class="flex-1 min-w-0 mr-3">
                                     <p class="text-sm text-gray-200 truncate" x-text="file.filename"></p>
-                                    <p class="text-xs text-gray-400" x-text="file.sizeFormatted"></p>
+                                    <p class="text-xs text-gray-400" x-text="file.uploading ? file.sizeFormatted + ' · ' + (file.progress || 0) + '%' + (file.paused ? ' · wacht op verbinding, gaat zo verder' : '') : file.sizeFormatted"></p>
                                     <p x-show="file.error" class="text-xs text-red-400 mt-1" x-text="file.error"></p>
                                 </div>
                                 <div class="flex items-center gap-3">
@@ -141,10 +141,9 @@
                                         <i class="fa-solid fa-exclamation-triangle text-red-400"></i>
                                     </template>
                                     <button type="button" @click="attachments.removeFile(file.id)"
-                                            :disabled="file.uploading"
-                                            :class="file.uploading ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-red-400 cursor-pointer'"
-                                            class="p-1 transition-colors">
-                                        <i class="fa-solid fa-trash"></i>
+                                            :title="file.uploading ? 'Upload annuleren' : 'Verwijderen'"
+                                            class="p-1 transition-colors text-gray-400 hover:text-red-400 cursor-pointer">
+                                        <i class="fa-solid" :class="file.uploading ? 'fa-xmark' : 'fa-trash'"></i>
                                     </button>
                                 </div>
                             </div>
@@ -169,9 +168,7 @@
                             </button>
                             <button type="button" @click="confirmClearAll()"
                                     x-show="attachments.files.length > 0"
-                                    :disabled="isUploading"
-                                    :class="isUploading ? 'bg-gray-600 cursor-not-allowed' : 'bg-red-600/80 hover:bg-red-500 cursor-pointer'"
-                                    class="px-4 py-2 text-white rounded-lg font-medium transition-colors">
+                                    class="bg-red-600/80 hover:bg-red-500 cursor-pointer px-4 py-2 text-white rounded-lg font-medium transition-colors">
                                 <i class="fa-solid fa-trash"></i>
                             </button>
                         </div>

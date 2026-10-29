@@ -521,7 +521,10 @@
 
             // File attachments store for managing uploaded files in chat
             Alpine.store('attachments', {
-                files: [],           // Array of { id, path, filename, size, sizeFormatted, uploading, error }
+                files: [],           // Array of { id, path, filename, size, sizeFormatted, uploading, progress, error }
+                _xhrs: {},           // id -> { uploadId, xhr, cancelled } of a running upload (for cancel)
+                _wakeLock: null,
+                _wakeListener: null,
                 maxFileSizeMb: {{ config('uploads.max_size_mb', 250) }},  // From server config
                 showModal: false,    // Global modal state - can be triggered from drag-and-drop
 
@@ -571,62 +574,29 @@
                         sizeFormatted: this.formatSize(file.size),
                         path: null,
                         uploading: true,
+                        progress: 0,
                         error: null,
                     };
                     this.files.push(entry);
 
-                    try {
-                        const formData = new FormData();
-                        formData.append('file', file);
-
-                        const response = await fetch('/api/file/upload', {
-                            method: 'POST',
-                            body: formData,
-                        });
-
-                        // Check response.ok BEFORE parsing JSON to handle HTML error pages
-                        if (!response.ok) {
-                            // Try to extract error message from response
-                            const contentType = response.headers.get('content-type') || '';
-                            let errorMessage = 'Upload failed';
-
-                            if (contentType.includes('application/json')) {
-                                try {
-                                    const errorData = await response.json();
-                                    errorMessage = errorData.message || errorData.error || errorMessage;
-                                } catch (e) {
-                                    // JSON parsing failed, use status text
-                                    errorMessage = response.statusText || errorMessage;
-                                }
-                            } else if (response.status === 422) {
-                                // Laravel validation error - file too large
-                                errorMessage = 'File too large. Maximum size is {{ config("uploads.max_size_mb", 250) }}MB.';
-                            } else if (response.status === 413) {
-                                // Nginx/PHP body too large
-                                errorMessage = 'File too large for server to process.';
-                            } else {
-                                errorMessage = `Upload failed (${response.status})`;
-                            }
-
-                            throw new Error(errorMessage);
-                        }
-
-                        const data = await response.json();
-
-                        if (!data.success) {
-                            throw new Error(data.message || data.error || 'Upload failed');
-                        }
-
-                        // Update entry with server response
+                    // Chunked + resumable: a phone that suspends the app (background, screen off) only
+                    // breaks the running chunk; on return we ask the server how much arrived and go on.
+                    const uploadId = (crypto.randomUUID ? crypto.randomUUID() : (id + '-' + Date.now())).replace(/[^A-Za-z0-9-]/g, '');
+                    const job = { uploadId, xhr: null, cancelled: false };
+                    this._xhrs[id] = job;
+                    this.keepAwake();
+                    const patch = (fields) => {
                         const idx = this.files.findIndex(f => f.id === id);
-                        if (idx !== -1) {
-                            this.files[idx] = {
-                                ...this.files[idx],
-                                path: data.path,
-                                sizeFormatted: data.size_formatted,
-                                uploading: false,
-                            };
-                        } else {
+                        if (idx !== -1) this.files[idx] = { ...this.files[idx], ...fields };
+                        return idx !== -1;
+                    };
+
+                    try {
+                        const data = await this.uploadInChunks(file, job, (loaded) => {
+                            patch({ progress: file.size ? Math.min(99, Math.floor((loaded / file.size) * 100)) : 0 });
+                        }, (waiting) => patch({ paused: waiting }));
+
+                        if (!patch({ path: data.path, sizeFormatted: data.size_formatted, uploading: false, paused: false, progress: 100 })) {
                             // Entry was removed during upload - clean up orphaned server file
                             try {
                                 await fetch('/api/file/delete', {
@@ -639,21 +609,154 @@
                             }
                         }
                     } catch (err) {
-                        const idx = this.files.findIndex(f => f.id === id);
-                        if (idx !== -1) {
-                            this.files[idx] = {
-                                ...this.files[idx],
-                                uploading: false,
-                                error: err.message,
-                            };
+                        if (err.cancelled) {
+                            // Cancelled by the user: the entry is already gone
+                            this.files = this.files.filter(f => f.id !== id);
+                        } else if (patch({ uploading: false, paused: false, error: err.message })) {
                             // Auto-open modal to show the error
                             this.showModal = true;
                         }
+                    } finally {
+                        delete this._xhrs[id];
+                        this.keepAwake();
                     }
+                },
+
+                chunkSize: 8 * 1024 * 1024,
+
+                _post(url, form, job, onProgress) {
+                    return new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        if (job) job.xhr = xhr;
+                        xhr.open('POST', url);
+                        xhr.setRequestHeader('Accept', 'application/json');
+                        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+                        if (csrf) xhr.setRequestHeader('X-CSRF-TOKEN', csrf);
+                        if (onProgress) xhr.upload.onprogress = (e) => onProgress(e.loaded);
+                        xhr.onload = () => {
+                            let data = null;
+                            try { data = JSON.parse(xhr.responseText); } catch (e) {}
+                            resolve({ status: xhr.status, data });
+                        };
+                        xhr.onerror = () => reject(Object.assign(new Error('network'), { network: true }));
+                        xhr.ontimeout = xhr.onerror;
+                        xhr.onabort = () => reject(Object.assign(new Error('cancelled'), { cancelled: true }));
+                        xhr.send(form);
+                    });
+                },
+
+                // Wait until the app is visible and online again (phones pause background tabs)
+                _waitUntilResumable(job) {
+                    return new Promise((resolve) => {
+                        const check = () => {
+                            if (job.cancelled || (document.visibilityState === 'visible' && navigator.onLine !== false)) {
+                                document.removeEventListener('visibilitychange', check);
+                                window.removeEventListener('online', check);
+                                clearInterval(timer);
+                                resolve();
+                            }
+                        };
+                        const timer = setInterval(check, 2000);
+                        document.addEventListener('visibilitychange', check);
+                        window.addEventListener('online', check);
+                        check();
+                    });
+                },
+
+                async uploadInChunks(file, job, onProgress, onPaused) {
+                    let offset = 0;
+                    let failures = 0;
+                    while (true) {
+                        if (job.cancelled) throw Object.assign(new Error('cancelled'), { cancelled: true });
+                        const end = Math.min(file.size, offset + this.chunkSize);
+                        const form = new FormData();
+                        form.append('upload_id', job.uploadId);
+                        form.append('filename', file.name);
+                        form.append('offset', String(offset));
+                        form.append('total_size', String(file.size));
+                        form.append('chunk', file.slice(offset, end), 'chunk');
+
+                        let res;
+                        try {
+                            res = await this._post('/api/file/upload-chunk', form, job, (loaded) => onProgress(offset + loaded));
+                        } catch (err) {
+                            if (err.cancelled || job.cancelled) throw Object.assign(new Error('cancelled'), { cancelled: true });
+                            // Network gone or app suspended: wait, then resume from what the server has
+                            if (++failures > 30) throw new Error('Upload failed (network error)');
+                            onPaused(true);
+                            await new Promise(r => setTimeout(r, Math.min(15000, 1000 * failures)));
+                            await this._waitUntilResumable(job);
+                            const statusForm = new FormData();
+                            statusForm.append('upload_id', job.uploadId);
+                            try {
+                                const st = await this._post('/api/file/upload-status', statusForm, job);
+                                if (st.status === 200 && st.data) offset = st.data.received || 0;
+                            } catch (e) {
+                                if (e.cancelled) throw e;
+                            }
+                            onPaused(false);
+                            continue;
+                        }
+
+                        if (res.status === 409 && res.data && typeof res.data.received === 'number') {
+                            offset = res.data.received; // server has a different amount: continue from there
+                            continue;
+                        }
+                        if (res.status < 200 || res.status >= 300 || !res.data || !res.data.success) {
+                            let msg = (res.data && (res.data.message || res.data.error)) || null;
+                            if (!msg) {
+                                msg = res.status === 413 ? 'File too large for server to process.'
+                                    : res.status === 422 ? 'File too large. Maximum size is {{ config("uploads.max_size_mb", 250) }}MB.'
+                                    : `Upload failed (${res.status})`;
+                            }
+                            throw new Error(msg);
+                        }
+
+                        failures = 0;
+                        if (res.data.done) return res.data;
+                        offset = res.data.received;
+                        onProgress(offset);
+                    }
+                },
+
+                // Keep the screen on while uploading (a phone that sleeps pauses the upload)
+                async keepAwake() {
+                    const busy = Object.keys(this._xhrs).length > 0;
+                    try {
+                        if (busy && !this._wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
+                            this._wakeLock = await navigator.wakeLock.request('screen');
+                            this._wakeLock.addEventListener('release', () => { this._wakeLock = null; });
+                            if (!this._wakeListener) {
+                                this._wakeListener = () => { if (document.visibilityState === 'visible') this.keepAwake(); };
+                                document.addEventListener('visibilitychange', this._wakeListener);
+                            }
+                        } else if (!busy && this._wakeLock) {
+                            await this._wakeLock.release();
+                            this._wakeLock = null;
+                        }
+                    } catch (e) {
+                        // Wake lock not allowed (battery saver, iOS < 16.4): upload still resumes on return
+                    }
+                },
+
+                // Stop a running upload and drop what reached the server
+                cancelUpload(id) {
+                    const job = this._xhrs[id];
+                    this.files = this.files.filter(f => f.id !== id);
+                    if (!job) return;
+                    job.cancelled = true;
+                    if (job.xhr) job.xhr.abort();
+                    const form = new FormData();
+                    form.append('upload_id', job.uploadId);
+                    this._post('/api/file/upload-cancel', form, null).catch(() => {});
                 },
 
                 async removeFile(id) {
                     const file = this.files.find(f => f.id === id);
+                    if (file && file.uploading) {
+                        this.cancelUpload(id);
+                        return;
+                    }
                     if (file && file.path) {
                         // Delete from server
                         try {
@@ -670,6 +773,7 @@
                 },
 
                 clear(deleteFromServer = true) {
+                    Object.keys(this._xhrs).forEach(id => this.cancelUpload(id));
                     // Optionally delete files from server (skip when sending - keep files for Claude to read)
                     if (deleteFromServer) {
                         this.files.forEach(async (file) => {

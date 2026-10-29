@@ -82,7 +82,7 @@
                     :class="hasAnyFiles ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-gray-600 hover:bg-gray-500 text-gray-200'"
                     class="relative px-4 py-[10px] min-w-[106px] rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
                     title="Attach files">
-                <x-spinner x-show="isUploading" x-cloak />
+                <span x-show="isUploading" x-cloak class="font-bold" style="font-size: 11px;" x-text="attachments.uploadPercent + '%'"></span>
                 <i x-show="!isUploading" class="fa-solid fa-paperclip"></i>
                 <span x-show="!hasAnyFiles">Attach</span>
                 <span x-show="hasAnyFiles"
@@ -128,6 +128,10 @@
                                 <div class="flex-1 min-w-0 mr-3">
                                     <p class="text-sm text-gray-200 truncate" x-text="file.filename"></p>
                                     <p class="text-xs text-gray-400" x-text="file.uploading ? file.sizeFormatted + ' · ' + (file.progress || 0) + '%' + (file.paused ? ' · wacht op verbinding, gaat zo verder' : '') : file.sizeFormatted"></p>
+                                    <div x-show="file.uploading" class="mt-1.5 rounded-full overflow-hidden bg-gray-600" style="height: 6px;"
+                                         role="progressbar" :aria-valuenow="file.progress || 0" aria-valuemin="0" aria-valuemax="100">
+                                        <div class="h-full rounded-full bg-blue-500 transition-all duration-300" :style="'width: ' + (file.progress || 0) + '%'"></div>
+                                    </div>
                                     <p x-show="file.error" class="text-xs text-red-400 mt-1" x-text="file.error"></p>
                                 </div>
                                 <div class="flex items-center gap-3">

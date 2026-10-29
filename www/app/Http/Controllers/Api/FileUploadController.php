@@ -62,131 +62,204 @@ class FileUploadController extends Controller
     }
 
     // ===== Resumable uploads in chunks =====
-    // The browser sends the file in pieces. When a phone suspends the app (PWA in the background,
-    // screen off) the running piece fails; on return the client asks how much arrived and goes on
-    // from there instead of starting over. Partial data: {upload dir}/.partial/{upload_id}.part
+    // The browser sends the file in numbered pieces (raw body, metadata in the query string). The
+    // pieces may arrive in any order and more than once: Android's Background Fetch (uploads that
+    // keep going when the PWA is in the background) does not promise an order, and the in-app
+    // fallback re-sends only what is missing after an interruption.
+    // Data: {upload dir}/.partial/{upload_id}.part + {upload_id}.json (received chunk indices).
 
-    /**
-     * Append one chunk. offset must equal what the server already has (else 409 + received).
-     * The last chunk (received == total_size) finishes the upload: same response as upload().
-     */
+    private const MIN_CHUNK = 1024 * 1024;
+    private const MAX_CHUNK = 64 * 1024 * 1024;
+
     public function uploadChunk(Request $request): JsonResponse
     {
         $maxBytes = config('uploads.max_size_mb', 250) * 1024 * 1024;
-
-        $request->validate([
+        $v = validator($request->query(), [
             'upload_id' => ['required', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/'],
             'filename' => 'required|string|max:255',
-            'offset' => 'required|integer|min:0',
             'total_size' => 'required|integer|min:0|max:' . $maxBytes,
-            'chunk' => 'required|file',
+            'chunk_size' => 'required|integer|min:' . self::MIN_CHUNK . '|max:' . self::MAX_CHUNK,
+            'index' => 'required|integer|min:0',
         ]);
+        if ($v->fails()) {
+            return response()->json(['success' => false, 'error' => $v->errors()->first()], 422);
+        }
 
-        $partial = $this->partialPath($request->input('upload_id'));
+        $uploadId = $request->query('upload_id');
+        $total = (int) $request->query('total_size');
+        $chunkSize = (int) $request->query('chunk_size');
+        $index = (int) $request->query('index');
+        $count = max(1, (int) ceil($total / $chunkSize));
+        if ($index >= $count) {
+            return response()->json(['success' => false, 'error' => 'Chunk index out of range'], 422);
+        }
+        $expected = $index === $count - 1 ? $total - $index * $chunkSize : $chunkSize;
+
+        [$partial, $metaPath] = $this->partialPaths($uploadId);
         if (!$partial) {
             return response()->json(['success' => false, 'error' => 'Failed to create upload directory'], 500);
         }
         $this->cleanupStalePartials(dirname($partial));
 
-        $total = (int) $request->input('total_size');
-        $offset = (int) $request->input('offset');
-
-        $fp = fopen($partial, 'c+b');
-        if (!$fp || !flock($fp, LOCK_EX)) {
+        $lock = fopen($metaPath . '.lock', 'c');
+        if (!$lock || !flock($lock, LOCK_EX)) {
             return response()->json(['success' => false, 'error' => 'Upload failed'], 500);
         }
 
         try {
-            clearstatcache(true, $partial);
-            $received = (int) filesize($partial);
-            if ($offset !== $received) {
-                return response()->json(['success' => false, 'error' => 'offset_mismatch', 'received' => $received], 409);
+            $meta = $this->readMeta($metaPath) ?? [
+                'filename' => $request->query('filename'),
+                'total' => $total,
+                'chunk_size' => $chunkSize,
+                'chunks' => [],
+            ];
+            if (!empty($meta['path'])) {
+                return response()->json($this->doneResponse($meta)); // already complete (duplicate request)
+            }
+            if ($meta['total'] !== $total || $meta['chunk_size'] !== $chunkSize) {
+                return response()->json(['success' => false, 'error' => 'Upload parameters changed'], 409);
             }
 
-            $chunkPath = $request->file('chunk')->getRealPath();
-            $chunkSize = (int) filesize($chunkPath);
-            if ($received + $chunkSize > $total) {
-                return response()->json(['success' => false, 'error' => 'Chunk exceeds total size', 'received' => $received], 422);
+            if (!in_array($index, $meta['chunks'], true)) {
+                // Stream the raw body to a temp file first: a cut-off request never lands in the upload
+                $tmp = $partial . '.' . $index . '.tmp';
+                $in = fopen('php://input', 'rb');
+                $out = fopen($tmp, 'wb');
+                $written = stream_copy_to_stream($in, $out);
+                fclose($in);
+                fclose($out);
+                if ($written !== $expected) {
+                    @unlink($tmp);
+
+                    return response()->json(['success' => false, 'error' => 'Incomplete chunk', 'received_chunks' => $meta['chunks']], 400);
+                }
+
+                $fp = fopen($partial, 'c+b');
+                $src = fopen($tmp, 'rb');
+                fseek($fp, $index * $chunkSize);
+                stream_copy_to_stream($src, $fp);
+                fflush($fp);
+                fclose($src);
+                fclose($fp);
+                @unlink($tmp);
+
+                $meta['chunks'][] = $index;
+                sort($meta['chunks']);
             }
 
-            fseek($fp, $received);
-            $in = fopen($chunkPath, 'rb');
-            stream_copy_to_stream($in, $fp);
-            fclose($in);
-            fflush($fp);
-            $received += $chunkSize;
+            if (count($meta['chunks']) < $count) {
+                $this->writeMeta($metaPath, $meta);
+
+                return response()->json([
+                    'success' => true,
+                    'done' => false,
+                    'received_chunks' => $meta['chunks'],
+                    'total_chunks' => $count,
+                ]);
+            }
+
+            // Complete: move to its final name, exactly like a normal upload
+            $original = $meta['filename'];
+            $extension = preg_replace('/[^a-zA-Z0-9]+/', '', (string) pathinfo($original, PATHINFO_EXTENSION));
+            $safeName = Str::slug(pathinfo($original, PATHINFO_FILENAME)) ?: 'file';
+            $uniqueName = $safeName . '-' . Str::random(8) . ($extension ? ('.' . $extension) : '');
+            $path = config('uploads.directory', '/tmp/pocketdev-uploads') . '/' . $uniqueName;
+            if (!rename($partial, $path)) {
+                return response()->json(['success' => false, 'error' => 'Upload failed'], 500);
+            }
+            @chmod($path, 0644);
+            $meta['path'] = $path;
+            $meta['size'] = filesize($path);
+            $this->writeMeta($metaPath, $meta); // kept a while so a late duplicate/status call gets the path
+
+            return response()->json($this->doneResponse($meta));
         } finally {
-            flock($fp, LOCK_UN);
-            fclose($fp);
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
-
-        if ($received < $total) {
-            return response()->json(['success' => true, 'done' => false, 'received' => $received]);
-        }
-
-        // Complete: move to its final name, exactly like a normal upload
-        $original = $request->input('filename');
-        $extension = preg_replace('/[^a-zA-Z0-9]+/', '', (string) pathinfo($original, PATHINFO_EXTENSION));
-        $safeName = Str::slug(pathinfo($original, PATHINFO_FILENAME)) ?: 'file';
-        $uniqueName = $safeName . '-' . Str::random(8) . ($extension ? ('.' . $extension) : '');
-        $path = config('uploads.directory', '/tmp/pocketdev-uploads') . '/' . $uniqueName;
-
-        if (!rename($partial, $path)) {
-            return response()->json(['success' => false, 'error' => 'Upload failed'], 500);
-        }
-        @chmod($path, 0644);
-
-        return response()->json([
-            'success' => true,
-            'done' => true,
-            'received' => $received,
-            'path' => $path,
-            'filename' => $original,
-            'size' => filesize($path),
-            'size_formatted' => $this->formatFileSize(filesize($path)),
-        ]);
     }
 
-    /** How many bytes of a chunked upload the server has (to resume after an interruption). */
+    /** Which chunks the server has (to resume), or the final path when the upload is complete. */
     public function uploadStatus(Request $request): JsonResponse
     {
         $request->validate(['upload_id' => ['required', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/']]);
-        $partial = $this->partialPath($request->input('upload_id'));
-        clearstatcache(true, (string) $partial);
+        [, $metaPath] = $this->partialPaths($request->input('upload_id'));
+        $meta = $metaPath ? $this->readMeta($metaPath) : null;
+        if ($meta && !empty($meta['path'])) {
+            return response()->json($this->doneResponse($meta));
+        }
 
-        return response()->json(['success' => true, 'received' => $partial && is_file($partial) ? (int) filesize($partial) : 0]);
+        return response()->json([
+            'success' => true,
+            'done' => false,
+            'exists' => (bool) $meta,
+            'received_chunks' => $meta['chunks'] ?? [],
+        ]);
     }
 
     /** Cancel a chunked upload: drop what arrived so far. */
     public function uploadCancel(Request $request): JsonResponse
     {
         $request->validate(['upload_id' => ['required', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/']]);
-        $partial = $this->partialPath($request->input('upload_id'));
-        if ($partial && is_file($partial)) {
-            @unlink($partial);
+        [$partial, $metaPath] = $this->partialPaths($request->input('upload_id'));
+        if ($partial) {
+            $meta = $this->readMeta($metaPath);
+            foreach (array_merge([$partial, $metaPath, $metaPath . '.lock'], glob($partial . '.*.tmp') ?: []) as $f) {
+                @unlink($f);
+            }
+            // Already complete: remove the finished file too (it was cancelled after all)
+            if (!empty($meta['path']) && is_file($meta['path'])) {
+                @unlink($meta['path']);
+            }
         }
 
         return response()->json(['success' => true]);
     }
 
-    private function partialPath(string $uploadId): ?string
+    private function doneResponse(array $meta): array
+    {
+        return [
+            'success' => true,
+            'done' => true,
+            'path' => $meta['path'],
+            'filename' => $meta['filename'],
+            'size' => $meta['size'] ?? (is_file($meta['path']) ? filesize($meta['path']) : 0),
+            'size_formatted' => $this->formatFileSize((int) ($meta['size'] ?? 0)),
+        ];
+    }
+
+    private function readMeta(string $metaPath): ?array
+    {
+        $data = is_file($metaPath) ? json_decode((string) file_get_contents($metaPath), true) : null;
+
+        return is_array($data) ? $data : null;
+    }
+
+    private function writeMeta(string $metaPath, array $meta): void
+    {
+        file_put_contents($metaPath . '.new', json_encode($meta));
+        rename($metaPath . '.new', $metaPath);
+    }
+
+    /** @return array{0: ?string, 1: ?string} */
+    private function partialPaths(string $uploadId): array
     {
         $dir = config('uploads.directory', '/tmp/pocketdev-uploads') . '/.partial';
         if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
-            return null;
+            return [null, null];
         }
 
-        return $dir . '/' . $uploadId . '.part';
+        return [$dir . '/' . $uploadId . '.part', $dir . '/' . $uploadId . '.json'];
     }
 
-    /** Partials untouched for a day were abandoned (app closed for good). */
+    /** Uploads untouched for a day were abandoned (app closed for good). */
     private function cleanupStalePartials(string $dir): void
     {
         if (random_int(1, 20) !== 1) {
             return;
         }
-        foreach (glob($dir . '/*.part') ?: [] as $file) {
-            if (@filemtime($file) < time() - 86400) {
+        foreach (glob($dir . '/*') ?: [] as $file) {
+            if (is_file($file) && @filemtime($file) < time() - 86400) {
                 @unlink($file);
             }
         }

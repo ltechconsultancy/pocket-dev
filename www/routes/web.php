@@ -537,6 +537,9 @@ Route::prefix('api')->group(function () {
         Route::get('download', [FilePreviewController::class, 'download']);
         Route::get('media', [FilePreviewController::class, 'media']);
         Route::post('upload', [FileUploadController::class, 'upload']);
+        Route::post('upload-chunk', [FileUploadController::class, 'uploadChunk']);
+        Route::post('upload-status', [FileUploadController::class, 'uploadStatus']);
+        Route::post('upload-cancel', [FileUploadController::class, 'uploadCancel']);
         Route::post('delete', [FileUploadController::class, 'delete']);
     });
 

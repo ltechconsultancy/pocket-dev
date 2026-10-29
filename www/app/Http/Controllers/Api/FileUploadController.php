@@ -61,6 +61,137 @@ class FileUploadController extends Controller
         ]);
     }
 
+    // ===== Resumable uploads in chunks =====
+    // The browser sends the file in pieces. When a phone suspends the app (PWA in the background,
+    // screen off) the running piece fails; on return the client asks how much arrived and goes on
+    // from there instead of starting over. Partial data: {upload dir}/.partial/{upload_id}.part
+
+    /**
+     * Append one chunk. offset must equal what the server already has (else 409 + received).
+     * The last chunk (received == total_size) finishes the upload: same response as upload().
+     */
+    public function uploadChunk(Request $request): JsonResponse
+    {
+        $maxBytes = config('uploads.max_size_mb', 250) * 1024 * 1024;
+
+        $request->validate([
+            'upload_id' => ['required', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/'],
+            'filename' => 'required|string|max:255',
+            'offset' => 'required|integer|min:0',
+            'total_size' => 'required|integer|min:0|max:' . $maxBytes,
+            'chunk' => 'required|file',
+        ]);
+
+        $partial = $this->partialPath($request->input('upload_id'));
+        if (!$partial) {
+            return response()->json(['success' => false, 'error' => 'Failed to create upload directory'], 500);
+        }
+        $this->cleanupStalePartials(dirname($partial));
+
+        $total = (int) $request->input('total_size');
+        $offset = (int) $request->input('offset');
+
+        $fp = fopen($partial, 'c+b');
+        if (!$fp || !flock($fp, LOCK_EX)) {
+            return response()->json(['success' => false, 'error' => 'Upload failed'], 500);
+        }
+
+        try {
+            clearstatcache(true, $partial);
+            $received = (int) filesize($partial);
+            if ($offset !== $received) {
+                return response()->json(['success' => false, 'error' => 'offset_mismatch', 'received' => $received], 409);
+            }
+
+            $chunkPath = $request->file('chunk')->getRealPath();
+            $chunkSize = (int) filesize($chunkPath);
+            if ($received + $chunkSize > $total) {
+                return response()->json(['success' => false, 'error' => 'Chunk exceeds total size', 'received' => $received], 422);
+            }
+
+            fseek($fp, $received);
+            $in = fopen($chunkPath, 'rb');
+            stream_copy_to_stream($in, $fp);
+            fclose($in);
+            fflush($fp);
+            $received += $chunkSize;
+        } finally {
+            flock($fp, LOCK_UN);
+            fclose($fp);
+        }
+
+        if ($received < $total) {
+            return response()->json(['success' => true, 'done' => false, 'received' => $received]);
+        }
+
+        // Complete: move to its final name, exactly like a normal upload
+        $original = $request->input('filename');
+        $extension = preg_replace('/[^a-zA-Z0-9]+/', '', (string) pathinfo($original, PATHINFO_EXTENSION));
+        $safeName = Str::slug(pathinfo($original, PATHINFO_FILENAME)) ?: 'file';
+        $uniqueName = $safeName . '-' . Str::random(8) . ($extension ? ('.' . $extension) : '');
+        $path = config('uploads.directory', '/tmp/pocketdev-uploads') . '/' . $uniqueName;
+
+        if (!rename($partial, $path)) {
+            return response()->json(['success' => false, 'error' => 'Upload failed'], 500);
+        }
+        @chmod($path, 0644);
+
+        return response()->json([
+            'success' => true,
+            'done' => true,
+            'received' => $received,
+            'path' => $path,
+            'filename' => $original,
+            'size' => filesize($path),
+            'size_formatted' => $this->formatFileSize(filesize($path)),
+        ]);
+    }
+
+    /** How many bytes of a chunked upload the server has (to resume after an interruption). */
+    public function uploadStatus(Request $request): JsonResponse
+    {
+        $request->validate(['upload_id' => ['required', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/']]);
+        $partial = $this->partialPath($request->input('upload_id'));
+        clearstatcache(true, (string) $partial);
+
+        return response()->json(['success' => true, 'received' => $partial && is_file($partial) ? (int) filesize($partial) : 0]);
+    }
+
+    /** Cancel a chunked upload: drop what arrived so far. */
+    public function uploadCancel(Request $request): JsonResponse
+    {
+        $request->validate(['upload_id' => ['required', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/']]);
+        $partial = $this->partialPath($request->input('upload_id'));
+        if ($partial && is_file($partial)) {
+            @unlink($partial);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    private function partialPath(string $uploadId): ?string
+    {
+        $dir = config('uploads.directory', '/tmp/pocketdev-uploads') . '/.partial';
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            return null;
+        }
+
+        return $dir . '/' . $uploadId . '.part';
+    }
+
+    /** Partials untouched for a day were abandoned (app closed for good). */
+    private function cleanupStalePartials(string $dir): void
+    {
+        if (random_int(1, 20) !== 1) {
+            return;
+        }
+        foreach (glob($dir . '/*.part') ?: [] as $file) {
+            if (@filemtime($file) < time() - 86400) {
+                @unlink($file);
+            }
+        }
+    }
+
     /**
      * Delete a previously uploaded file.
      */

@@ -604,14 +604,14 @@
                         const onProgress = (loaded) => {
                             const pct = file.size ? Math.min(99, Math.floor((loaded / file.size) * 100)) : 0;
                             patch({ progress: pct });
-                            this._notifyProgress(file.name, pct);
+                            this._notifyProgress(file, pct);
                         };
                         // Android Chrome: hand the upload to the browser so it goes on in the background
                         let data = await this.uploadBackground(file, job, onProgress, id);
                         if (!data || !data.done) {
                             data = await this.uploadInChunks(file, job, onProgress, (waiting) => patch({ paused: waiting }), data?.resume || []);
                         }
-                        this._notifyProgress(file.name, 100);
+                        this._notifyProgress(file, 100);
 
                         if (!patch({ path: data.path, sizeFormatted: data.size_formatted, uploading: false, paused: false, progress: 100 })) {
                             // Entry was removed during upload - clean up orphaned server file
@@ -626,7 +626,7 @@
                             }
                         }
                     } catch (err) {
-                        this._notifyProgress(file.name, null);
+                        this._notifyProgress(file, null);
                         if (err.cancelled) {
                             // Cancelled by the user: the entry is already gone
                             this.files = this.files.filter(f => f.id !== id);
@@ -786,7 +786,10 @@
                 },
 
                 // Notification with the percentage (uploads in the app; Background Fetch has its own)
-                async _notifyProgress(name, pct) {
+                // Only for big files (>= 16 MB): a few-MB upload is done before a notification helps
+                async _notifyProgress(file, pct) {
+                    if (!file || file.size < 16 * 1024 * 1024) return;
+                    const name = file.name;
                     try {
                         const busy = Object.values(this._xhrs).some(j => !j.background);
                         if (!('Notification' in window) || Notification.permission !== 'granted') return;

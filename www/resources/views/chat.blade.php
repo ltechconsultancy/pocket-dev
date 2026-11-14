@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, maximum-scale=5.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script>
+        // Perf beacon, part 1: collect long tasks from the very start (part 2 is at the end of <body>)
+        window.__pdPerf = { longTasks: 0, longTaskMs: 0 };
+        try {
+            new PerformanceObserver((list) => {
+                for (const e of list.getEntries()) { window.__pdPerf.longTasks++; window.__pdPerf.longTaskMs += e.duration; }
+            }).observe({ type: 'longtask', buffered: true });
+        } catch (e) { /* not supported (Safari) */ }
+    </script>
     @include('partials.pwa-head')
     <title>PocketDev Chat</title>
 
@@ -1023,10 +1032,10 @@
             integrity="sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR"
             crossorigin="anonymous"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"
-            integrity="sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I"
-            crossorigin="anonymous"></script>
+    {{-- highlight.js comes from the Vite bundle (resources/js/app.js sets window.hljs).
+         Mermaid (~2.6 MB) is NOT loaded up front: window.loadMermaid() fetches it the first
+         time a diagram has to be rendered. Loading both synchronously in <head> cost ~0.9 s
+         of main-thread time on every page load on a phone. --}}
     <!--
         ===================================================================================
         MERMAID DARK THEME CONFIGURATION
@@ -1079,7 +1088,32 @@
         ===================================================================================
     -->
     <script>
-        if (typeof mermaid !== 'undefined') {
+        // Lazy Mermaid loader: returns a promise for window.mermaid (initialized), or
+        // rejects when the CDN can't be reached. Loaded once, on the first diagram.
+        window._mermaidSrc = 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js';
+        window._mermaidIntegrity = 'sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I';
+        window.loadMermaid = function() {
+            if (window._mermaidPromise) return window._mermaidPromise;
+            window._mermaidPromise = new Promise((resolve, reject) => {
+                const el = document.createElement('script');
+                el.src = window._mermaidSrc;
+                el.integrity = window._mermaidIntegrity;
+                el.crossOrigin = 'anonymous';
+                el.async = true;
+                el.onload = () => {
+                    if (typeof mermaid === 'undefined') return reject(new Error('Mermaid did not load'));
+                    window._initMermaid();
+                    resolve(window.mermaid);
+                };
+                el.onerror = () => reject(new Error('Mermaid could not be loaded'));
+                document.head.appendChild(el);
+            }).catch((err) => {
+                window._mermaidPromise = null; // allow a retry later (e.g. after being offline)
+                throw err;
+            });
+            return window._mermaidPromise;
+        };
+        window._initMermaid = function() {
             mermaid.initialize({
                 startOnLoad: false,
                 theme: 'base',  // Only 'base' allows full customization
@@ -1333,7 +1367,7 @@
                     }
                 }
             });
-        }
+        };
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
           integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
@@ -2086,9 +2120,14 @@
         // @param {HTMLElement} containerEl - Container with .mermaid-placeholder elements
         // @param {boolean} skipCache - If true, skip cache lookup and always render fresh (for file preview to avoid duplicate SVG IDs)
         window.renderMermaidDiagrams = async function(containerEl, skipCache = false) {
+            if (!containerEl) return;
+            // Nothing to draw: don't download Mermaid at all
+            if (!containerEl.querySelector('.mermaid-placeholder:not(.mermaid-rendered):not(.mermaid-processing)')) return;
+            if (typeof mermaid === 'undefined') {
+                try { await window.loadMermaid(); } catch (e) { /* fall through to the code-block fallback */ }
+            }
             // Fallback: if Mermaid CDN failed to load, show code blocks instead
             if (typeof mermaid === 'undefined') {
-                if (!containerEl) return;
                 // Allow retrying error placeholders in case Mermaid becomes available later
                 const placeholders = containerEl.querySelectorAll('.mermaid-placeholder:not(.mermaid-rendered):not(.mermaid-processing)');
                 for (const placeholder of placeholders) {
@@ -8345,6 +8384,61 @@
                 }
             };
         }
+    </script>
+    <script>
+        // Perf beacon, part 2: once per page load, report how long it took until the first
+        // conversation was on screen (or the app was idle) to /api/perf-log (storage/logs/perf.log).
+        (function () {
+            const start = Date.now();
+            const send = (reason) => {
+                try {
+                    const app = document.body._x_dataStack?.[0];
+                    const nav = performance.getEntriesByType('navigation')[0] || {};
+                    const api = performance.getEntriesByType('resource').filter((r) => r.name.includes('/api/'));
+                    const conn = navigator.connection || {};
+                    const data = {
+                        reason,
+                        device: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+                        standalone: !!(window.pwaIsStandalone && window.pwaIsStandalone()),
+                        width: window.innerWidth,
+                        cpus: navigator.hardwareConcurrency || null,
+                        memGb: navigator.deviceMemory || null,
+                        net: conn.effectiveType || null,
+                        rttMs: conn.rtt ?? null,
+                        nav: nav.type || null,
+                        ttfbMs: Math.round(nav.responseStart || 0),
+                        htmlMs: Math.round(nav.responseEnd || 0),
+                        htmlKb: Math.round((nav.transferSize || 0) / 1024),
+                        dclMs: Math.round(nav.domContentLoadedEventEnd || 0),
+                        loadMs: Math.round(nav.loadEventEnd || 0),
+                        readyMs: Math.round(performance.now()),
+                        longTasks: window.__pdPerf?.longTasks ?? null,
+                        longTaskMs: Math.round(window.__pdPerf?.longTaskMs ?? 0),
+                        apiCalls: api.length,
+                        apiMaxMs: Math.round(Math.max(0, ...api.map((r) => r.duration))),
+                        apiKb: Math.round(api.reduce((a, r) => a + (r.transferSize || 0), 0) / 1024),
+                        messages: app?.messages?.length ?? null,
+                        hasConversation: !!app?.currentConversationUuid,
+                    };
+                    const body = new FormData();
+                    body.append('_token', document.querySelector('meta[name="csrf-token"]')?.content || '');
+                    body.append('data', JSON.stringify(data));
+                    navigator.sendBeacon('/api/perf-log', body);
+                } catch (e) { /* never break the app for a measurement */ }
+            };
+            const check = () => {
+                const app = document.body._x_dataStack?.[0];
+                const waited = Date.now() - start;
+                if (app && !app.loadingConversation && app.currentConversationUuid && app.messages?.length) {
+                    // let the browser paint the messages first
+                    return requestAnimationFrame(() => setTimeout(() => send('conversation'), 0));
+                }
+                if (waited > 60000) return send('timeout');
+                if (app && !app.currentConversationUuid && !app.loadingConversation && waited > 8000) return send('no-conversation');
+                setTimeout(check, 100);
+            };
+            window.addEventListener('load', check, { once: true });
+        })();
     </script>
 </body>
 </html>

@@ -319,6 +319,9 @@ Route::middleware('auth')->group(function () {
 
 Route::prefix('api')->group(function () {
 
+    // Client load timings (perf beacon in chat.blade.php)
+    Route::post('perf-log', [\App\Http\Controllers\Api\PerfLogController::class, 'store']);
+
     /*
     |--------------------------------------------------------------------------
     | Voice / Transcription Routes

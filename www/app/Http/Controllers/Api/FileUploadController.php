@@ -107,7 +107,20 @@ class FileUploadController extends Controller
         }
 
         try {
-            $meta = $this->readMeta($metaPath) ?? [
+            $existing = $this->readMeta($metaPath);
+            if ($existing === null) {
+                // New upload: refuse up front when it would fill the disk (the partial grows to the full size)
+                $free = @disk_free_space(dirname($partial));
+                $reserve = (int) config('uploads.min_free_mb', 3072) * 1024 * 1024;
+                if ($free !== false && $total + $reserve > $free) {
+                    return response()->json([
+                        'success' => false,
+                        'error' => sprintf('Not enough disk space on the server for this file (%s free, %s needed).',
+                            $this->formatFileSize((int) max(0, $free - $reserve)), $this->formatFileSize($total)),
+                    ], 507);
+                }
+            }
+            $meta = $existing ?? [
                 'filename' => $request->query('filename'),
                 'total' => $total,
                 'chunk_size' => $chunkSize,
